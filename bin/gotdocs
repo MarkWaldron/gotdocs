@@ -1,0 +1,82 @@
+#!/bin/sh
+# gotdocs -- POSIX sh shim.
+#
+# Locates the vendored tools/gotdocs package and execs it with python3. Works
+# from any working directory, through symlinks, and with spaces in paths.
+#
+# Environment:
+#   GOTDOCS_PYTHON  path to the interpreter to exec (default: python3, then python)
+#
+# Failure posture: gotdocs is never the reason a commit cannot happen, so a
+# missing interpreter or a missing package warns on stderr and exits 0.
+
+set -u
+
+# --- resolve this script, following symlinks ------------------------------
+self=$0
+# Guard against a symlink loop rather than spinning forever.
+hops=0
+while [ -L "$self" ]; do
+    hops=$((hops + 1))
+    if [ "$hops" -gt 40 ]; then
+        echo "gotdocs: too many symlinks resolving $0" >&2
+        exit 0
+    fi
+    link=$(readlink "$self") || break
+    case $link in
+        /*) self=$link ;;
+        *) self=$(dirname "$self")/$link ;;
+    esac
+done
+
+bindir=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P) || {
+    echo "gotdocs: cannot determine script directory" >&2
+    exit 0
+}
+root=$(dirname -- "$bindir")
+
+# --- locate the package ---------------------------------------------------
+if [ ! -f "$root/tools/gotdocs/__main__.py" ]; then
+    # Installed somewhere unusual (a PATH symlink into a different tree, or a
+    # copied bin/). Fall back to the toplevel of the repo we were called from.
+    if candidate=$(git rev-parse --show-toplevel 2>/dev/null) &&
+        [ -n "$candidate" ] &&
+        [ -f "$candidate/tools/gotdocs/__main__.py" ]; then
+        root=$candidate
+    else
+        echo "gotdocs: cannot find tools/gotdocs (looked in $root); skipping" >&2
+        exit 0
+    fi
+fi
+
+# --- locate an interpreter ------------------------------------------------
+py=${GOTDOCS_PYTHON:-}
+if [ -n "$py" ]; then
+    if ! command -v "$py" >/dev/null 2>&1; then
+        echo "gotdocs: GOTDOCS_PYTHON=$py is not executable; skipping" >&2
+        exit 0
+    fi
+elif command -v python3 >/dev/null 2>&1; then
+    py=python3
+elif command -v python >/dev/null 2>&1; then
+    py=python
+else
+    echo "gotdocs: python3 not found; skipping (set GOTDOCS_PYTHON to override)" >&2
+    exit 0
+fi
+
+# --- exec -----------------------------------------------------------------
+# The package resolves the repository from the caller's directory, so preserve
+# it rather than cd-ing. PYTHONPATH makes `-m tools.gotdocs` importable from
+# anywhere.
+GOTDOCS_CWD=${GOTDOCS_CWD:-$PWD}
+export GOTDOCS_CWD
+
+if [ -n "${PYTHONPATH:-}" ]; then
+    PYTHONPATH=$root:$PYTHONPATH
+else
+    PYTHONPATH=$root
+fi
+export PYTHONPATH
+
+exec "$py" -m tools.gotdocs "$@"

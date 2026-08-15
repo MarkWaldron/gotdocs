@@ -1,0 +1,21 @@
+# Python bytecode from running the vendored CLI and its test suite.
+# The gotdocs CLI itself already ignores these for staleness purposes via the
+# "ignore" globs in .gotdocs/config.json; this keeps them out of git as well.
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+
+# Hook backups left by scripts/install-gotdocs.sh and `bin/gotdocs install`
+*.bak
+*.local
+
+# OS noise
+.DS_Store

@@ -1,0 +1,703 @@
+{
+  "version": 1,
+  "generated_at_sha": "3d8b6cd",
+  "roots": [
+    "docs",
+    "runbooks",
+    "onboarding",
+    "dependencies",
+    "decisions"
+  ],
+  "doc_count": 25,
+  "docs": [
+    {
+      "id": "0001-docs-live-in-the-repo",
+      "path": "decisions/0001-docs-live-in-the-repo.md",
+      "type": "decision",
+      "title": "Documentation lives in the repository, in git, next to the code",
+      "summary": "Docs are markdown files in the working tree under configured roots, versioned by git, with no external wiki, database or hosted service in the loop.",
+      "status": "accepted",
+      "covers": [
+        ".gotdocs/config.json",
+        "tools/gotdocs/config.py",
+        "tools/gotdocs/index.py"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "architecture",
+        "storage",
+        "git"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd",
+      "symptoms": [
+        "I edited the wiki and gotdocs still says the doc is stale",
+        "there is no web UI, no server and no login for this documentation system",
+        "the docs directory is full of markdown files with a YAML block at the top",
+        "a doc I deleted on a branch is back after I switched branches",
+        "the docs went out of date the moment we started a long-lived feature branch",
+        "my documentation edit needs a code review before it lands"
+      ],
+      "decided_on": "2026-08-14",
+      "supersedes": [],
+      "superseded_by": []
+    },
+    {
+      "id": "0002-python-stdlib-only-cli",
+      "path": "decisions/0002-python-stdlib-only-cli.md",
+      "type": "decision",
+      "title": "The CLI is vendored Python 3.9+ standard library only, behind a POSIX sh shim",
+      "summary": "gotdocs ships as source inside the repo it guards, imports nothing outside the Python 3.9 stdlib, and its sh shim exits 0 rather than blocking a commit when python is missing.",
+      "status": "accepted",
+      "covers": [
+        "bin/gotdocs",
+        "tools/gotdocs/__main__.py",
+        "tools/gotdocs/frontmatter.py",
+        "tools/gotdocs/globs.py"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "architecture",
+        "dependencies",
+        "python"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd",
+      "symptoms": [
+        "there is no pip install step and no requirements.txt anywhere",
+        "gotdocs printed a warning about python and then let my commit through",
+        "the YAML in frontmatter rejects something PyYAML would happily parse",
+        "gotdocs says my python is too old and exits 2",
+        "the whole tool is checked into my repo instead of installed from a package index",
+        "a colleague on a different machine gets identical gotdocs output to mine",
+        "gotdocs works in a container with no network access"
+      ],
+      "decided_on": "2026-08-14",
+      "supersedes": [],
+      "superseded_by": []
+    },
+    {
+      "id": "0003-covers-globs-as-the-staleness-signal",
+      "path": "decisions/0003-covers-globs-as-the-staleness-signal.md",
+      "type": "decision",
+      "title": "Staleness is computed from declared covers globs, not from content analysis",
+      "summary": "A doc is impacted when a changed code path matches one of its hand-declared covers globs; there is no content diffing, no LLM judgement and no import graph in the check path.",
+      "status": "accepted",
+      "covers": [
+        "tools/gotdocs/globs.py",
+        "tools/gotdocs/check.py",
+        ".gotdocs/schema.json"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "architecture",
+        "staleness",
+        "globs"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd",
+      "symptoms": [
+        "a doc was marked stale for a change that did not affect what the doc says",
+        "I renamed a variable and three docs went stale",
+        "I rewrote a whole module and no doc was reported at all",
+        "the doc lists covers globs I have to maintain by hand",
+        "src/* did not match src/a/b.py the way my shell would",
+        "a doc with an empty covers list is never reported as stale",
+        "reformatting a file made the docs stale",
+        "a doc went stale after a whitespace-only change",
+        "the same change reports different docs on two branches",
+        "a covers glob that names another document never makes it impacted",
+        "editing one doc does not mark the doc that covers it stale",
+        "covers decisions/** matches nothing even though the files are right there"
+      ],
+      "decided_on": "2026-08-14",
+      "supersedes": [],
+      "superseded_by": []
+    },
+    {
+      "id": "0004-ci-records-debt-instead-of-blocking",
+      "path": "decisions/0004-ci-records-debt-instead-of-blocking.md",
+      "type": "decision",
+      "title": "Enforcement defaults to warn and CI records doc debt instead of failing the build",
+      "summary": "enforce.pre_commit, pre_push and ci all default to warn; findings are written to a tracked debt ledger on push to main, and only the stale committed index fails a pull request.",
+      "status": "accepted",
+      "covers": [
+        ".github/workflows/gotdocs.yml",
+        ".gotdocs/hooks/pre-commit",
+        ".gotdocs/hooks/pre-push",
+        "tools/gotdocs/debt.py",
+        "tools/gotdocs/check.py"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "enforcement",
+        "ci",
+        "adoption"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd",
+      "symptoms": [
+        "gotdocs reported stale docs and the commit went through anyway",
+        "the CI job printed findings but the pull request is still green",
+        "check exits 0 even though it listed three stale documents",
+        "a bot commit keeps appearing on main touching .gotdocs/DEBT.md",
+        "the only gotdocs failure I ever see is about the index being out of date",
+        "our pull request went red on gotdocs after somebody changed a config file",
+        "findings I ignored last month are listed in a file with occurrence counts"
+      ],
+      "decided_on": "2026-08-14",
+      "supersedes": [],
+      "superseded_by": []
+    },
+    {
+      "id": "0005-restricted-yaml-frontmatter-subset",
+      "path": "decisions/0005-restricted-yaml-frontmatter-subset.md",
+      "type": "decision",
+      "title": "Frontmatter is a restricted YAML subset with a byte-preserving writer",
+      "summary": "Only scalars, quoted scalars, inline flow lists and block lists of scalars are accepted; anything else is a located error, and the writer rewrites only updated and verified_at.",
+      "status": "accepted",
+      "covers": [
+        "tools/gotdocs/frontmatter.py",
+        ".gotdocs/schema.json",
+        ".gotdocs/templates/**"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "format",
+        "frontmatter",
+        "parsing"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd",
+      "symptoms": [
+        "nested mappings are not supported; flatten the key",
+        "block scalars are not supported; use a single line",
+        "my frontmatter is valid YAML but gotdocs rejects it",
+        "gotdocs verify changed only two lines and left my comments and quoting alone",
+        "the error points at a file and line number instead of just failing",
+        "I cannot put a list of objects in owners",
+        "a tab in the frontmatter is an error",
+        "the YAML block in the doc has to sit between two --- lines at the very top"
+      ],
+      "decided_on": "2026-08-14",
+      "supersedes": [],
+      "superseded_by": []
+    },
+    {
+      "id": "0006-verify-stamp-as-the-escape-hatch",
+      "path": "decisions/0006-verify-stamp-as-the-escape-hatch.md",
+      "type": "decision",
+      "title": "The escape hatch is a recorded verify stamp, not a suppression flag",
+      "summary": "An impacted doc is satisfied by editing it or by running gotdocs verify, which stamps verified_at with the head sha and updated with today's date into the tracked file.",
+      "status": "accepted",
+      "covers": [
+        "tools/gotdocs/check.py",
+        "tools/gotdocs/gitutil.py"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "enforcement",
+        "verify",
+        "staleness"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd",
+      "symptoms": [
+        "I ran gotdocs verify and the stale finding disappeared",
+        "verified_at holds a git sha that is not the commit I just made",
+        "the doc says verified_at 3d8b6cd and updated today but the body did not change",
+        "there is no ignore or nocheck comment I can put in a doc to silence it",
+        "verify refuses to run in a repository with no commits",
+        "editing the doc in the same commit satisfies the check without running anything",
+        "a short sha in verified_at still matches a full-length head sha",
+        "I verified a doc and now the committed index is out of date",
+        "verified_at is ignored when the change set comes from --paths",
+        "gotdocs verify did not clear the stale finding under check --paths",
+        "the PostToolUse reminder still names a doc I just verified",
+        "summary.head is null and no verified_at ever satisfies the check"
+      ],
+      "decided_on": "2026-08-14",
+      "supersedes": [],
+      "superseded_by": []
+    },
+    {
+      "id": "0007-symptoms-routing-for-intent-lookup",
+      "path": "decisions/0007-symptoms-routing-for-intent-lookup.md",
+      "type": "decision",
+      "title": "Decision records are routed by observer-written symptoms, scored with token overlap",
+      "summary": "gotdocs why ranks decision records by weighted token overlap against a hand-written symptoms list, so an agent can ask is this intentional before treating behaviour as a bug.",
+      "status": "accepted",
+      "covers": [
+        "tools/gotdocs/decisions.py"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "decisions",
+        "search",
+        "agents"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd",
+      "symptoms": [
+        "I cannot tell whether this behaviour is intentional or a defect",
+        "gotdocs why returned nothing and told me to treat it as unintended",
+        "why matched a decision that has nothing to do with what I typed",
+        "the top match is obviously right but the second one is noise",
+        "a superseded decision was cited as the reason for current behaviour",
+        "lint says an accepted decision must list at least one entry under symptoms",
+        "searching for retries found a record that says retried",
+        "why exits 0 even when it finds no answer at all"
+      ],
+      "decided_on": "2026-08-14",
+      "supersedes": [],
+      "superseded_by": []
+    },
+    {
+      "id": "0008-index-first-context-economy",
+      "path": "decisions/0008-index-first-context-economy.md",
+      "type": "decision",
+      "title": "A committed one-line-per-doc index is the entry point, and it is budgeted",
+      "summary": "Agents read .gotdocs/INDEX.md first and open only what they need; the file is one line per document, excludes symptoms and bodies, and is committed and byte-reproducible.",
+      "status": "accepted",
+      "covers": [
+        "tools/gotdocs/index.py",
+        ".gotdocs/INDEX.md",
+        ".gotdocs/index.json"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "agents",
+        "index",
+        "tokens"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd",
+      "symptoms": [
+        "the index lists documents but not their contents",
+        "symptoms are in the decision files but not in INDEX.md",
+        "only accepted decisions appear in the index",
+        "INDEX.md and index.json are generated but still committed to git",
+        "CI failed because the committed index does not match the tree",
+        "my summary was rejected for being over 200 characters",
+        "the agent opened three docs instead of reading all thirteen",
+        "running gotdocs index twice produces no diff the second time"
+      ],
+      "decided_on": "2026-08-14",
+      "supersedes": [],
+      "superseded_by": []
+    },
+    {
+      "id": "agent-workflow",
+      "path": "docs/agent-workflow.md",
+      "type": "doc",
+      "title": "Agent Workflow — How Claude Uses Gotdocs",
+      "summary": "The index-first pattern a coding agent follows — read INDEX.md, open only relevant docs, use impacted and check --json, and the four skills that do the writing.",
+      "status": "current",
+      "covers": [
+        ".claude/skills/**",
+        ".claude/settings.json"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "agents",
+        "claude",
+        "skills",
+        "tokens",
+        "workflow"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "cli-reference",
+      "path": "docs/cli-reference.md",
+      "type": "doc",
+      "title": "Gotdocs CLI Reference",
+      "summary": "Every gotdocs command, flag and exit code, plus the --json output shape that agents and CI depend on.",
+      "status": "current",
+      "covers": [
+        "tools/gotdocs/**",
+        "bin/gotdocs"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "cli",
+        "reference",
+        "json",
+        "agent-interface"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "decisions",
+      "path": "docs/decisions.md",
+      "type": "doc",
+      "title": "Decision Records — Is This a Bug, or Did We Mean It?",
+      "summary": "The ADR flow in gotdocs — how a record is numbered, linted and superseded, and how `gotdocs why` answers the bug-versus-intentional-tradeoff question from a symptom description.",
+      "status": "current",
+      "covers": [
+        "tools/gotdocs/decisions.py",
+        ".gotdocs/templates/decision.md"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "decisions",
+        "adr",
+        "why",
+        "debugging"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "dependency-git",
+      "path": "dependencies/git.md",
+      "type": "dependency",
+      "title": "Dependency: git",
+      "summary": "gotdocs shells out to git for every change set and sha it uses — the exact commands, the environments where they break, and what gotdocs does instead.",
+      "status": "current",
+      "covers": [
+        "tools/gotdocs/gitutil.py",
+        ".gotdocs/hooks/**"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "dependency",
+        "git",
+        "plumbing"
+      ],
+      "updated": "2026-08-14",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "dependency-python3",
+      "path": "dependencies/python3.md",
+      "type": "dependency",
+      "title": "Dependency: python3",
+      "summary": "gotdocs is Python 3.9+ standard library only — why there is no PyYAML, which stdlib modules it uses, and what happens when python3 is missing.",
+      "status": "current",
+      "covers": [
+        "bin/gotdocs",
+        "tools/gotdocs/__main__.py",
+        "tools/gotdocs/frontmatter.py"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "dependency",
+        "python",
+        "stdlib",
+        "portability"
+      ],
+      "updated": "2026-08-14",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "doc-debt",
+      "path": "docs/doc-debt.md",
+      "type": "doc",
+      "title": "Doc Debt — The Ledger of What You Agreed to Live With",
+      "summary": "Why warn mode needs a ledger, the JSONL format and its dedup and auto-resolve rules, the two CI jobs, and how to read DEBT.md. CI does not block unless enforce.ci is error.",
+      "status": "current",
+      "covers": [
+        "tools/gotdocs/debt.py",
+        ".github/workflows/gotdocs.yml"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "debt",
+        "ledger",
+        "ci",
+        "jsonl",
+        "adoption"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "doc-format",
+      "path": "docs/doc-format.md",
+      "type": "doc",
+      "title": "Doc Format and Frontmatter Reference",
+      "summary": "Every frontmatter field, what covers means, how to pick good covers globs, the glob dialect, and the limits of the supported YAML subset.",
+      "status": "current",
+      "covers": [
+        ".gotdocs/schema.json",
+        ".gotdocs/templates/**",
+        "tools/gotdocs/frontmatter.py",
+        "tools/gotdocs/globs.py",
+        "tools/gotdocs/index.py"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "frontmatter",
+        "reference",
+        "globs",
+        "yaml"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "enforcement",
+      "path": "docs/enforcement.md",
+      "type": "doc",
+      "title": "Enforcement — Hooks, CI, Modes and Escape Hatches",
+      "summary": "Where gotdocs runs (pre-commit, pre-push, CI), what off/warn/error each mean, every way to bypass a check and what it costs, and the rollout order.",
+      "status": "current",
+      "covers": [
+        ".gotdocs/hooks/**",
+        "scripts/**",
+        ".github/workflows/**"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "enforcement",
+        "hooks",
+        "ci",
+        "rollout"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "gotdocs-architecture",
+      "path": "docs/architecture.md",
+      "type": "doc",
+      "title": "Gotdocs Architecture",
+      "summary": "End-to-end design of gotdocs — how a git diff becomes an impacted-doc list, a staleness finding, and a blocked commit.",
+      "status": "current",
+      "covers": [
+        "tools/gotdocs/**",
+        "bin/gotdocs"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "architecture",
+        "cli",
+        "internals"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "onboarding-local-setup",
+      "path": "onboarding/local-setup.md",
+      "type": "onboarding",
+      "title": "Local Setup",
+      "summary": "Clone, install the hooks, run the tests, then deliberately trigger a stale-doc finding and resolve it — with the exact commands and expected output.",
+      "status": "current",
+      "covers": [
+        "scripts/install-gotdocs.sh",
+        "scripts/uninstall-gotdocs.sh",
+        "bin/gotdocs",
+        "tools/gotdocs/tests/**"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "onboarding",
+        "setup",
+        "hooks",
+        "testing"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "onboarding-start-here",
+      "path": "onboarding/start-here.md",
+      "type": "onboarding",
+      "title": "Start Here",
+      "summary": "What gotdocs is, why documentation lives in the repo, what to read in your first 30 minutes, and the first useful change to make.",
+      "status": "current",
+      "covers": [
+        "README.md",
+        ".gotdocs/config.json"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "onboarding",
+        "orientation"
+      ],
+      "updated": "2026-08-14",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "publishing",
+      "path": "docs/publishing.md",
+      "type": "doc",
+      "title": "Publishing — Portability Guarantees, Lint Rules and Export Targets",
+      "summary": "What gotdocs promises about rendering on six static site generators, the fifteen portability lint rules, what `gotdocs export` maps per target, and the h1_in_body tradeoff.",
+      "status": "current",
+      "covers": [
+        "tools/gotdocs/export.py",
+        "tools/gotdocs/portability.py"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "publishing",
+        "ssg",
+        "export",
+        "portability",
+        "lint"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "runbook-adopting-gotdocs",
+      "path": "runbooks/adopting-gotdocs-in-an-existing-repo.md",
+      "type": "runbook",
+      "title": "Runbook: Adopting Gotdocs in an Existing Repo",
+      "summary": "Migrate a repo that already has 200 undocumented files onto gotdocs without producing a wall of false positives on day one.",
+      "status": "current",
+      "covers": [
+        "scripts/install-gotdocs.sh",
+        ".gotdocs/config.json",
+        "tools/gotdocs/cli.py"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "runbook",
+        "adoption",
+        "migration",
+        "rollout"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "runbook-ci-check-failing",
+      "path": "runbooks/ci-check-failing.md",
+      "type": "runbook",
+      "title": "Runbook: The Gotdocs CI Job Is Failing",
+      "summary": "A pull request is red on the gotdocs job — identify which of the four failure modes it is (stale doc, stale committed index, lint error, bad base ref) and fix it.",
+      "status": "current",
+      "covers": [
+        ".github/workflows/**",
+        "tools/gotdocs/gitutil.py"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "runbook",
+        "ci",
+        "github-actions",
+        "pull-request"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "runbook-doc-debt-review",
+      "path": "runbooks/doc-debt-review.md",
+      "type": "runbook",
+      "title": "Runbook: Working the Doc-Debt Ledger Down",
+      "summary": "DEBT.md has grown and nobody is reading it — triage order by finding kind, the four decisions per entry, when to fix versus close as won't-do, and how to stop it refilling.",
+      "status": "current",
+      "covers": [
+        "tools/gotdocs/debt.py"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "runbook",
+        "debt",
+        "triage",
+        "maintenance"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "runbook-pre-commit-hook-blocking",
+      "path": "runbooks/pre-commit-hook-blocking.md",
+      "type": "runbook",
+      "title": "Runbook: Pre-Commit Hook Is Blocking a Commit",
+      "summary": "The gotdocs pre-commit hook refused your commit or printed findings you did not expect — how to unblock in under two minutes without breaking the guarantee.",
+      "status": "current",
+      "covers": [
+        ".gotdocs/hooks/**",
+        "scripts/install-gotdocs.sh"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "runbook",
+        "hooks",
+        "pre-commit",
+        "unblock"
+      ],
+      "updated": "2026-08-15",
+      "verified_at": "3d8b6cd"
+    },
+    {
+      "id": "runbook-stale-doc-triage",
+      "path": "runbooks/stale-doc-triage.md",
+      "type": "runbook",
+      "title": "Runbook: Triaging N Stale Docs",
+      "summary": "gotdocs check reported several stale docs — how to decide, per doc, whether to edit it, verify it, narrow its covers, or delete it.",
+      "status": "current",
+      "covers": [
+        "tools/gotdocs/check.py",
+        "tools/gotdocs/index.py"
+      ],
+      "owners": [
+        "@mark"
+      ],
+      "tags": [
+        "runbook",
+        "triage",
+        "stale",
+        "verify"
+      ],
+      "updated": "2026-08-14",
+      "verified_at": "3d8b6cd"
+    }
+  ]
+}

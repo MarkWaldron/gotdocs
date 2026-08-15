@@ -1,0 +1,297 @@
+#!/bin/sh
+# gotdocs-managed-hook v1
+#
+# gotdocs pre-commit hook.
+#
+# Runs `bin/gotdocs check --staged` against the staged change set and reports
+# documentation that the change makes stale.
+#
+# Source of truth for this file is .gotdocs/hooks/pre-commit. It is copied into
+# the repository hooks directory by scripts/install-gotdocs.sh. Do not edit the
+# installed copy; edit the source and re-run the installer.
+#
+# Behaviour:
+#   * chains to <hook>.local first, if the installer preserved a pre-existing hook
+#   * skips during merge / rebase / cherry-pick
+#   * skips when GOTDOCS_SKIP=1 or the pending commit message carries the skip token
+#   * honours enforce.pre_commit in .gotdocs/config.json (off | warn | error)
+#   * in warn mode, records the findings the commit is being allowed to carry into
+#     the local doc-debt ledger (.gotdocs/debt.jsonl); never in off mode
+#   * never blocks the commit when python3 or the CLI is unavailable
+#   * exits non-zero ONLY when the configured mode is "error"
+
+set -eu
+
+HOOK_NAME='pre-commit'
+DEFAULT_MODE='warn'
+DEFAULT_SKIP_TOKEN='[gotdocs skip]'
+
+# ---------------------------------------------------------------------------
+# Resolve this hook's own path before changing directory, so the ".local"
+# chain target can be found regardless of how git invoked us.
+# ---------------------------------------------------------------------------
+HOOK_SELF=$0
+case $HOOK_SELF in
+    /*) ;;
+    *) HOOK_SELF="$PWD/$HOOK_SELF" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Chain: run any pre-existing hook the installer moved aside. Its veto wins,
+# and it runs before gotdocs so its (usually more important) checks report first.
+# ---------------------------------------------------------------------------
+if [ -f "$HOOK_SELF.local" ]; then
+    if [ -x "$HOOK_SELF.local" ]; then
+        "$HOOK_SELF.local" "$@"
+    else
+        sh "$HOOK_SELF.local" "$@"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Explicit opt-out.
+# ---------------------------------------------------------------------------
+case "${GOTDOCS_SKIP:-}" in
+    1 | true | TRUE | yes | YES) exit 0 ;;
+    *) ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Locate the repository. Anything unexpected here means "not our business".
+# ---------------------------------------------------------------------------
+if ! command -v git >/dev/null 2>&1; then
+    exit 0
+fi
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+[ -n "$REPO_ROOT" ] || exit 0
+cd "$REPO_ROOT" || exit 0
+
+GIT_DIR_PATH=$(git rev-parse --git-dir 2>/dev/null || true)
+[ -n "$GIT_DIR_PATH" ] || exit 0
+case $GIT_DIR_PATH in
+    /*) ;;
+    *) GIT_DIR_PATH="$REPO_ROOT/$GIT_DIR_PATH" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Never interfere with an in-progress merge, rebase, or cherry-pick: the user
+# is replaying somebody else's commits and cannot reasonably fix docs mid-flight.
+# ---------------------------------------------------------------------------
+if [ -e "$GIT_DIR_PATH/MERGE_HEAD" ] ||
+    [ -e "$GIT_DIR_PATH/CHERRY_PICK_HEAD" ] ||
+    [ -e "$GIT_DIR_PATH/REVERT_HEAD" ] ||
+    [ -d "$GIT_DIR_PATH/rebase-merge" ] ||
+    [ -d "$GIT_DIR_PATH/rebase-apply" ]; then
+    exit 0
+fi
+
+CONFIG_FILE="$REPO_ROOT/.gotdocs/config.json"
+
+# ---------------------------------------------------------------------------
+# Minimal, dependency-free reader for flat string values in .gotdocs/config.json.
+# Deliberately not a JSON parser: it only needs "key": "value" pairs, and falls
+# back to the documented default whenever it cannot find one.
+#   $1 = key name, $2 = default value
+# ---------------------------------------------------------------------------
+config_string() {
+    _cs_key=$1
+    _cs_default=$2
+    _cs_value=''
+    if [ -f "$CONFIG_FILE" ]; then
+        _cs_value=$(
+            tr -d '\r' <"$CONFIG_FILE" 2>/dev/null | tr '\n' ' ' |
+                sed -n 's/.*"'"$_cs_key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+        ) || _cs_value=''
+    fi
+    if [ -n "$_cs_value" ]; then
+        printf '%s\n' "$_cs_value"
+    else
+        printf '%s\n' "$_cs_default"
+    fi
+    unset _cs_key _cs_default _cs_value
+}
+
+# ---------------------------------------------------------------------------
+# Enforcement mode. Scoped to the "enforce" object rather than searched across
+# the whole file: config.json now carries nested "debt" and "publish" blocks,
+# and a bare key search would happily read a same-named key out of one of them.
+#   $1 = context name (pre_commit | pre_push | ci), $2 = default
+# ---------------------------------------------------------------------------
+config_mode() {
+    _cm_key=$1
+    _cm_default=$2
+    _cm_value=''
+    if [ -f "$CONFIG_FILE" ]; then
+        _cm_value=$(
+            tr -d '\r' <"$CONFIG_FILE" 2>/dev/null | tr '\n' ' ' |
+                sed -n 's/.*"enforce"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/\1/p' |
+                sed -n 's/.*"'"$_cm_key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+        ) || _cm_value=''
+    fi
+    case ${_cm_value:-} in
+        off | warn | error) printf '%s\n' "$_cm_value" ;;
+        *) printf '%s\n' "$_cm_default" ;;
+    esac
+    unset _cm_key _cm_default _cm_value
+}
+
+MODE=$(config_mode 'pre_commit' "$DEFAULT_MODE")
+
+# Enforcement disabled: leave immediately, before paying for anything else.
+if [ "$MODE" = 'off' ]; then
+    exit 0
+fi
+
+SKIP_TOKEN=$(config_string 'skip_token' "$DEFAULT_SKIP_TOKEN")
+
+# ---------------------------------------------------------------------------
+# Skip token in the commit message. Necessarily best effort: git writes the
+# pending message to COMMIT_EDITMSG only *after* pre-commit runs, so the file
+# normally still holds the previous commit's message. Honour the token only
+# when the file is not that leftover -- otherwise one commit carrying the token
+# would silently suppress the check on the following commit as well.
+#
+# GOTDOCS_SKIP=1 is the reliable bypass and is what the remediation text leads
+# with; a message-based skip is fully enforced by the commit-msg stage instead.
+# ---------------------------------------------------------------------------
+if [ -n "$SKIP_TOKEN" ] && [ -r "$GIT_DIR_PATH/COMMIT_EDITMSG" ]; then
+    if grep -qF -- "$SKIP_TOKEN" "$GIT_DIR_PATH/COMMIT_EDITMSG" 2>/dev/null; then
+        PENDING_MSG=$(grep -v '^#' "$GIT_DIR_PATH/COMMIT_EDITMSG" 2>/dev/null || true)
+        HEAD_MSG=$(git log -1 --format=%B HEAD 2>/dev/null || true)
+        if [ "$PENDING_MSG" != "$HEAD_MSG" ]; then
+            exit 0
+        fi
+    fi
+fi
+
+# Nothing staged: nothing for gotdocs to reason about.
+if git diff --cached --quiet -- 2>/dev/null; then
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# The CLI is vendored, stdlib-only Python. If either half is missing we warn
+# once and let the commit through: a broken toolchain must never gate commits.
+# ---------------------------------------------------------------------------
+warn() {
+    printf 'gotdocs: %s\n' "$1" >&2
+    printf 'gotdocs: skipping the %s check (commit not blocked).\n' "$HOOK_NAME" >&2
+}
+
+if ! command -v python3 >/dev/null 2>&1; then
+    warn 'python3 was not found on PATH'
+    exit 0
+fi
+
+if [ ! -f 'bin/gotdocs' ]; then
+    warn 'bin/gotdocs is missing from this repository'
+    exit 0
+fi
+
+# `--message ''` stops the CLI from consulting COMMIT_EDITMSG itself. Reaching
+# this point means the skip-token decision above already came out as "do not
+# skip", so re-reading the same file could only produce a different answer.
+# (The CLI applies the identical "differs from HEAD's message" guard, so this is
+# belt and braces -- but the hook's decision is the one that must win.)
+#
+# Capture stdout only: that is where the findings report goes. Anything the CLI
+# writes to stderr (warnings, tracebacks) streams straight to the terminal and
+# is deliberately NOT treated as a finding.
+#
+# `--quiet` is what makes "empty stdout" mean "nothing to report": without it the
+# CLI prints a "no findings" success line on a clean run, and every branch below
+# keys off whether OUTPUT is empty, so a clean commit would print the remediation
+# block. With --quiet, clean / skipped / mode=off all produce no stdout, while a
+# real findings report still prints in full.
+set +e
+if [ -x 'bin/gotdocs' ]; then
+    OUTPUT=$(./bin/gotdocs check --staged --quiet --mode "$MODE" --message '')
+else
+    OUTPUT=$(sh bin/gotdocs check --staged --quiet --mode "$MODE" --message '')
+fi
+STATUS=$?
+set -e
+
+# ---------------------------------------------------------------------------
+# Doc debt. In warn mode the commit is allowed through *carrying* findings, so
+# those findings are recorded once, locally, in .gotdocs/debt.jsonl. Recording
+# them is what stops "mode: warn" from meaning "nobody will ever read this".
+#
+# Deliberately not done in the other modes: in "off" nothing was checked, and in
+# "error" the commit is either clean or blocked, so nothing was accepted.
+#
+# The ledger is written but NOT staged: silently adding a file to somebody's
+# commit is worse than a stale ledger, and `gotdocs debt record` is idempotent,
+# so the next commit or the CI record job picks it up.
+# ---------------------------------------------------------------------------
+record_debt() {
+    [ "$MODE" = 'warn' ] || return 0
+    if [ -x 'bin/gotdocs' ]; then
+        ./bin/gotdocs debt record --staged --source hook --quiet >/dev/null 2>&1 || return 0
+    else
+        sh bin/gotdocs debt record --staged --source hook --quiet >/dev/null 2>&1 || return 0
+    fi
+    printf 'gotdocs: recorded in .gotdocs/debt.jsonl (see: bin/gotdocs debt list)\n' >&2
+}
+
+remediation_block() {
+    cat >&2 <<REMEDIATION
+
+------------------------------------------------------------------------
+gotdocs: documentation covering this change may now be out of date.
+
+Pick one:
+  - ask Claude to run /gotdocs-update
+  - edit the documents listed above, then stage them
+  - run: bin/gotdocs verify <doc-id>   (reviewed, no change needed)
+
+Bypass this commit only:
+  GOTDOCS_SKIP=1 git commit ...
+
+("$SKIP_TOKEN" in the message is honored by pre-push, which reads real
+commit messages. Not reliably here: git has not written the pending message
+yet when pre-commit runs. Not by CI either -- that uses a PR label.)
+------------------------------------------------------------------------
+REMEDIATION
+}
+
+case $STATUS in
+    0)
+        # Clean, or findings reported in warn mode (which still exits 0).
+        if [ -n "$OUTPUT" ]; then
+            printf '%s\n' "$OUTPUT" >&2
+            remediation_block
+            record_debt
+        fi
+        exit 0
+        ;;
+    1)
+        # Exit 1 means "findings, in error mode" -- but a CLI that dies before it
+        # can report (broken vendored tree, bad merge, import error) also exits 1
+        # with nothing on stdout. A real findings report is never empty, so treat
+        # the empty case as a tool failure and let the commit through.
+        if [ -z "$OUTPUT" ]; then
+            warn 'check exited 1 without producing a report, so it failed rather than found stale docs'
+            exit 0
+        fi
+        printf '%s\n' "$OUTPUT" >&2
+        remediation_block
+        if [ "$MODE" = 'error' ]; then
+            exit 1
+        fi
+        exit 0
+        ;;
+    *)
+        # Usage error, lint-fatal, no git repo, or an internal failure. Report
+        # it, but only an explicit error-mode policy may block the commit.
+        if [ -n "$OUTPUT" ]; then
+            printf '%s\n' "$OUTPUT" >&2
+        fi
+        warn "check exited with status $STATUS"
+        if [ "$MODE" = 'error' ] && [ "$STATUS" -eq 2 ]; then
+            exit 1
+        fi
+        exit 0
+        ;;
+esac

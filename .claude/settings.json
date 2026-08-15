@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 15,
+            "command": "command -v python3 >/dev/null 2>&1 || exit 0\n[ -x \"${CLAUDE_PROJECT_DIR:-.}/bin/gotdocs\" ] || exit 0\npython3 -c '\nimport json,os,subprocess,sys\ntry:\n    root=os.environ.get(\"CLAUDE_PROJECT_DIR\") or os.getcwd()\n    exe=os.path.join(root,\"bin\",\"gotdocs\")\n    ev=json.load(sys.stdin)\n    ti=ev.get(\"tool_input\") or {}\n    target=ti.get(\"file_path\") or ti.get(\"notebook_path\") or \"\"\n    if not target: raise SystemExit(0)\n    rel=os.path.relpath(os.path.abspath(target),root).replace(os.sep,\"/\")\n    if rel.startswith(\"..\"): raise SystemExit(0)\n    raw=subprocess.run([exe,\"impacted\",rel,\"--json\"],cwd=root,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=10).stdout\n    data=json.loads(raw.decode(\"utf-8\",\"replace\") or \"{}\")\n    seen=[]; decisions=[]\n    for entry in data.get(\"paths\") or []:\n        if entry.get(\"ignored\"): continue\n        for doc in entry.get(\"docs\") or []:\n            item=str(doc.get(\"doc_id\"))+\" (\"+str(doc.get(\"path\"))+\")\"\n            if str(doc.get(\"path\",\"\")).startswith(\"decisions/\"):\n                if item not in decisions: decisions.append(item)\n                continue\n            if item not in seen: seen.append(item)\n    if not seen and not decisions: raise SystemExit(0)\n    parts=[]\n    if seen:\n        parts.append(\"gotdocs: \"+rel+\" is covered by \"+str(len(seen))+\" doc(s): \"+\"; \".join(seen)\n            +\". Decide per doc, in this session, whether the documented behavior changed.\"\n            +\" If it changed: edit the doc, set updated: to today, then run bin/gotdocs index.\"\n            +\" If it did not: run bin/gotdocs verify <doc-id> and git add the doc.\"\n            +\" Use the gotdocs-update skill. Never stamp verify without reading the change.\")\n    if decisions:\n        parts.append(\"gotdocs: an architecture decision record governs this file: \"+\"; \".join(decisions)\n            +\". Run bin/gotdocs why --path \"+rel+\" before changing behavior here.\"\n            +\" If your change contradicts an accepted decision, say so and propose superseding it;\"\n            +\" do not quietly rewrite the record to match the new code.\")\n    print(json.dumps({\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\" \".join(parts)}}))\nexcept Exception:\n    pass\n' 2>/dev/null\nexit 0"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 5,
+            "command": "[ -f \"${CLAUDE_PROJECT_DIR:-.}/.gotdocs/INDEX.md\" ] || exit 0\nprintf \"%s\\n\" \"gotdocs is enabled in this repo. Documentation lives in the repo and is enforced: read .gotdocs/INDEX.md first - one line per doc, grouped by type, with a Decisions section listing the architecture decisions in force - and open only the docs you need. .gotdocs/index.json is the machine-readable form of the same data. Commands: bin/gotdocs status | bin/gotdocs impacted <path> | bin/gotdocs check --staged | bin/gotdocs verify <id> | bin/gotdocs why \\\"<what you observed>\\\" | bin/gotdocs debt list. A doc goes stale when code matching its covers globs changes and the doc is neither edited nor verified; the pre-commit hook reports this and records what you let through in .gotdocs/debt.jsonl. Before calling behavior a bug, run bin/gotdocs why - an accepted decision record may already explain it. Skills: gotdocs-update, gotdocs-author, gotdocs-audit, gotdocs-install.\"\nexit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

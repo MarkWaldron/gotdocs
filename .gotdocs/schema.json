@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotdocs.dev/schema/frontmatter-v1.json",
+  "title": "Gotdocs document frontmatter",
+  "$comment": "NOTHING VALIDATES AGAINST THIS FILE AT RUNTIME. The gotdocs CLI is Python 3.9+ stdlib only (no jsonschema, no PyYAML) and re-implements these rules natively in tools/gotdocs/frontmatter.py. This schema exists as the precise, machine-readable statement of the frontmatter format: use it for editor integration (VS Code yaml.schemas, JetBrains, Zed), for third-party tooling, and as the reference when changing the native validator. If you change one, change the other in the same commit.",
+  "type": "object",
+  "required": ["id", "title", "type", "summary", "covers", "status", "updated"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "maxLength": 64,
+      "description": "Stable kebab-case identifier, unique repo-wide. Used by `gotdocs verify <id>` and by agents to reference the doc. Renaming it is a breaking change for anything that cites it.",
+      "examples": ["gotdocs-cli", "payments-api", "runbook-db-failover"]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "Human-readable title. Rendered as the page heading by downstream static site generators.",
+      "examples": ["Gotdocs CLI"]
+    },
+    "type": {
+      "enum": ["doc", "runbook", "onboarding", "dependency", "decision"],
+      "description": "Document kind. Controls which template scaffolds it, how it is grouped in .gotdocs/INDEX.md, and which Claude skill maintains it. 'decision' is an architecture decision record: it lives under the decisions root, is named NNNN-slug.md, uses the decision status enum, and is searched by `gotdocs why`."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "One sentence. This exact string is what lands in .gotdocs/INDEX.md and index.json, so it is the only text an agent sees before deciding whether to open the file. Must be specific enough to make that decision. Limit mirrors config.max_summary_chars.",
+      "examples": ["Vendored stdlib-only CLI that computes which docs a code change impacts and enforces freshness."]
+    },
+    "covers": {
+      "type": "array",
+      "description": "Repo-relative glob patterns naming the code this document describes. A change touching any of these paths makes this doc impacted, and an impacted doc must be edited or re-verified in the same change. May be an empty list for docs that describe no specific code (policies, glossaries).",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^/].*$",
+        "$comment": "Patterns are repo-relative and /-separated with no leading './' or '/'. Supported syntax: '*' (not crossing /), '**' (crossing /), '?', '[abc]', '[a-z]', '[!abc]'; a pattern with no '/' and no '**' matches the basename at any depth; a trailing '/' means that directory and everything under it.",
+        "examples": ["tools/gotdocs/**", "bin/gotdocs", "*.py", "src/api/"]
+      },
+      "uniqueItems": true,
+      "default": []
+    },
+    "status": {
+      "enum": ["current", "draft", "deprecated", "proposed", "accepted", "rejected", "superseded"],
+      "description": "Lifecycle state, from one of two disjoint enums chosen by 'type'. Every type except 'decision' uses current | draft | deprecated: 'current' is enforced normally, 'draft' is a work in progress, and a 'deprecated' doc is reported when edited so it gets deleted rather than quietly maintained. A 'decision' uses proposed | accepted | rejected | superseded; only 'accepted' records are listed in .gotdocs/INDEX.md and only they are searched by `gotdocs why` without --all. The native validator in tools/gotdocs/index.py enforces the per-type split, which JSON Schema cannot express in one enum.",
+      "$comment": "See allOf below for the conditional that a schema-aware editor applies."
+    },
+    "updated": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "ISO 8601 calendar date (YYYY-MM-DD) the content was last meaningfully changed. Written by `gotdocs verify`.",
+      "examples": ["2026-08-14"]
+    },
+    "owners": {
+      "type": "array",
+      "description": "Who to ask. Free-form handles; '@name' for people, '@org/team' for teams.",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "examples": [["@mark"], ["@acme/platform"]]
+    },
+    "tags": {
+      "type": "array",
+      "description": "Lowercase keywords for grouping and search.",
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+      "uniqueItems": true,
+      "examples": [["cli", "tooling"]]
+    },
+    "verified_at": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$",
+      "description": "Git commit sha (short or long, lowercase hex) at which `covers` and the content were last confirmed accurate. Written by `gotdocs verify`. An impacted doc is satisfied when this equals the head sha of the change set.",
+      "examples": ["3d8b6cd"]
+    },
+    "symptoms": {
+      "type": "array",
+      "description": "Decision records only. Observable behaviour this record explains, one phrase per entry, written the way somebody would describe it when they hit it. This is the entire search corpus for `gotdocs why`, and it is deliberately kept OUT of .gotdocs/INDEX.md: that file is loaded into an agent's context on every session and must stay small.",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "default": [],
+      "examples": [["a POST is retried exactly twice and then fails fast"]]
+    },
+    "decided_on": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Decision records only. The date the decision was made, which is not the date the file was last touched ('updated').",
+      "examples": ["2026-08-14"]
+    },
+    "supersedes": {
+      "type": "array",
+      "description": "Decision records only. Ids of the records this one replaces. The link must be bidirectional: each named record must list this record under 'superseded_by'. `gotdocs lint` enforces both halves.",
+      "items": { "type": "string", "pattern": "^\\d{4}-[a-z0-9][a-z0-9-]*$" },
+      "uniqueItems": true,
+      "default": [],
+      "examples": [["0004-retry-per-hop"]]
+    },
+    "superseded_by": {
+      "type": "array",
+      "description": "Decision records only. Ids of the records that replaced this one. A record with a non-empty 'superseded_by' must have status 'superseded', and vice versa.",
+      "items": { "type": "string", "pattern": "^\\d{4}-[a-z0-9][a-z0-9-]*$" },
+      "uniqueItems": true,
+      "default": []
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "decision" } }, "required": ["type"] },
+      "then": {
+        "properties": {
+          "id": { "pattern": "^\\d{4}-[a-z0-9][a-z0-9-]*$" },
+          "status": { "enum": ["proposed", "accepted", "rejected", "superseded"] }
+        }
+      },
+      "else": {
+        "properties": {
+          "status": { "enum": ["current", "draft", "deprecated"] }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true,
+  "$defs": {
+    "additionalPropertiesRationale": {
+      "$comment": "additionalProperties is intentionally true: unknown keys are pass-through. The gotdocs frontmatter writer preserves every line it does not own byte-for-byte, so downstream static site generators may add their own keys (sidebar_position, slug, draft, weight, layout, nav_order, description, date, aliases, toc, hide, ...) without gotdocs stripping, reordering or rejecting them. Values must still be expressible in the supported YAML subset: scalars, inline flow lists of scalars, or block lists of scalars. Nested maps and multiline scalars are lint errors regardless of key."
+    }
+  }
+}

@@ -1,0 +1,584 @@
+name: gotdocs
+
+# Two jobs, two different questions.
+#
+#   check   (pull_request) "does this change leave the documentation wrong?"
+#           Reports into the job summary and a single sticky PR comment.
+#           NON-BLOCKING by default: it fails the job only when
+#           enforce.ci is "error" in .gotdocs/config.json. A repository that has
+#           just adopted gotdocs must not have every pull request go red before
+#           anybody has had a chance to write the docs. The one exception is the
+#           committed index: .gotdocs/index.json and .gotdocs/INDEX.md are
+#           generated files, and a pull request that does not regenerate them
+#           makes every later diff lie. That gate is always a hard error.
+#
+#   record  (push to main) "what did we decide to live with?"
+#           Records the findings main is carrying into .gotdocs/debt.jsonl,
+#           closes the ones that are gone, renders .gotdocs/DEBT.md, and commits
+#           the result back with [gotdocs skip] [skip ci] so it cannot trigger
+#           itself. It never fails the build: a ledger that could not be written
+#           is not a reason to mark a green push red.
+#
+# Escape hatch on a pull request: add the `gotdocs-skip` label.
+#
+# Zero third-party actions on purpose. Everything except checkout/setup-python
+# is POSIX sh, curl and stdlib python3, so this file can be audited in one read
+# and cannot be changed under you by somebody else's tag.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # One in-flight run per pull request, or per branch for a push. A superseded
+  # pull request run is cancelled; a push run is NOT, because cancelling it
+  # half-way through committing the ledger back is how you lose the ledger.
+  group: gotdocs-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: docs freshness
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'pull_request' &&
+      !contains(github.event.pull_request.labels.*.name, 'gotdocs-skip')
+    permissions:
+      contents: read
+      # Needed for the sticky comment. Pull requests from forks are given a
+      # read-only token no matter what this says, which is why every comment
+      # step below tolerates failure instead of relying on it.
+      pull-requests: write
+
+    steps:
+      - name: Check out the pull request with full history
+        uses: actions/checkout@v4
+        with:
+          # gotdocs diffs against the merge base, so shallow clones will not do.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Prepare
+        id: prepare
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -eu
+          if [ ! -f bin/gotdocs ]; then
+            echo "::error::bin/gotdocs is missing from this repository"
+            exit 1
+          fi
+          chmod +x bin/gotdocs
+          # actions/checkout with fetch-depth 0 normally leaves origin/<base> in
+          # place already; fetch defensively so a reconfigured checkout cannot
+          # turn the base ref into a hard failure here.
+          git fetch --no-tags --quiet origin \
+            "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}" || true
+          if ! git rev-parse --verify --quiet "origin/${BASE_REF}" >/dev/null; then
+            echo "::error::could not resolve origin/${BASE_REF}"
+            exit 1
+          fi
+          echo "gotdocs base: origin/${BASE_REF} ($(git rev-parse --short "origin/${BASE_REF}"))"
+
+          # enforce.ci decides whether this job is advisory or blocking. Read it
+          # with the stdlib rather than a shell regex: the config now has nested
+          # objects, and a same-named key in one of them must not change policy.
+          mode=$(python3 - <<'PY'
+          import json
+          try:
+              with open(".gotdocs/config.json", "r", encoding="utf-8") as handle:
+                  data = json.load(handle)
+          except Exception:
+              data = {}
+          enforce = data.get("enforce") if isinstance(data, dict) else None
+          value = enforce.get("ci") if isinstance(enforce, dict) else None
+          print(value if value in ("off", "warn", "error") else "warn")
+          PY
+          )
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+          echo "gotdocs enforce.ci: ${mode}"
+
+      # Each gate records its status instead of failing immediately, so the job
+      # summary below can report every problem in one pass.
+      - name: Lint documents
+        id: lint
+        run: |
+          # +e: record the exit status rather than ending the job here.
+          set +e
+          set -u
+          ./bin/gotdocs lint
+          status=$?
+          ./bin/gotdocs lint --json > "${RUNNER_TEMP}/gotdocs-lint.json" 2>/dev/null
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Check documentation freshness
+        id: check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set +e
+          set -u
+          ./bin/gotdocs check --base "origin/${BASE_REF}" --mode error
+          status=$?
+          ./bin/gotdocs check --base "origin/${BASE_REF}" --mode error --json \
+            > "${RUNNER_TEMP}/gotdocs-check.json" 2>/dev/null
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Verify the committed index is current
+        id: index
+        run: |
+          set +e
+          set -u
+          ./bin/gotdocs index
+          gen_status=$?
+          if [ "${gen_status}" -ne 0 ]; then
+            echo "::error::bin/gotdocs index exited with status ${gen_status}"
+            echo "status=${gen_status}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ ! -f .gotdocs/index.json ] || [ ! -f .gotdocs/INDEX.md ]; then
+            echo "::error::.gotdocs/index.json or .gotdocs/INDEX.md was not produced"
+            echo "status=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A byte-level comparison. This can only pass because `gotdocs index`
+          # preserves the generated_at_sha already on disk when nothing else in
+          # the payload changed -- a commit can never contain its own sha, so
+          # restamping HEAD here would make every committed index stale on
+          # arrival and this gate permanently red.
+          drift=$(git status --porcelain -- .gotdocs/index.json .gotdocs/INDEX.md)
+          if [ -n "${drift}" ]; then
+            {
+              echo "status=1"
+              echo 'drift<<GOTDOCS_EOF'
+              git --no-pager diff -- .gotdocs/index.json .gotdocs/INDEX.md | head -n 200
+              echo 'GOTDOCS_EOF'
+            } >> "$GITHUB_OUTPUT"
+            echo "::error::.gotdocs/index.json or .gotdocs/INDEX.md is out of date; run 'bin/gotdocs index' and commit the result"
+            git --no-pager diff -- .gotdocs/index.json .gotdocs/INDEX.md
+          else
+            echo "status=0" >> "$GITHUB_OUTPUT"
+            echo "index is current"
+          fi
+          git checkout -- .gotdocs/index.json .gotdocs/INDEX.md 2>/dev/null || true
+          exit 0
+
+      - name: Build the report
+        id: report
+        if: always()
+        env:
+          LINT_JSON: ${{ runner.temp }}/gotdocs-lint.json
+          CHECK_JSON: ${{ runner.temp }}/gotdocs-check.json
+          LINT_STATUS: ${{ steps.lint.outputs.status }}
+          CHECK_STATUS: ${{ steps.check.outputs.status }}
+          INDEX_STATUS: ${{ steps.index.outputs.status }}
+          INDEX_DRIFT: ${{ steps.index.outputs.drift }}
+          BASE_REF: ${{ github.base_ref }}
+          GOTDOCS_MODE: ${{ steps.prepare.outputs.mode }}
+          REPORT_PATH: ${{ runner.temp }}/gotdocs-report.md
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          lines = []
+
+
+          def add(text=""):
+              lines.append(text)
+
+
+          def load(path):
+              """Read one of the --json payloads; missing/!JSON is not fatal here."""
+              if not path or not os.path.exists(path):
+                  return None
+              try:
+                  with open(path, "r", encoding="utf-8") as handle:
+                      return json.load(handle)
+              except (ValueError, OSError):
+                  return None
+
+
+          def findings_of(payload):
+              """The --json contract puts findings under 'findings'; tolerate a bare list."""
+              if payload is None:
+                  return []
+              if isinstance(payload, list):
+                  return [f for f in payload if isinstance(f, dict)]
+              if isinstance(payload, dict):
+                  found = payload.get("findings") or []
+                  if isinstance(found, list):
+                      return [f for f in found if isinstance(f, dict)]
+              return []
+
+
+          def cell(value):
+              text = "" if value is None else str(value)
+              return text.replace("|", "\\|").replace("\n", " ").strip() or "-"
+
+
+          def status_of(name, default=1):
+              # A missing output means the step never ran; treat that as failure
+              # so an aborted job never renders a green summary.
+              raw = os.environ.get(name, "")
+              try:
+                  return int(raw)
+              except (TypeError, ValueError):
+                  return default
+
+
+          def table(title, findings):
+              add("### %s" % title)
+              add()
+              if not findings:
+                  add("No findings.")
+                  add()
+                  return
+              add("| kind | doc | path | message | remediation |")
+              add("| --- | --- | --- | --- | --- |")
+              for finding in findings:
+                  add(
+                      "| %s | %s | %s | %s | %s |"
+                      % (
+                          cell(finding.get("kind")),
+                          cell(finding.get("doc_id")),
+                          cell(finding.get("path")),
+                          cell(finding.get("message")),
+                          "`%s`" % cell(finding.get("remediation")),
+                      )
+                  )
+              add()
+
+
+          check = load(os.environ.get("CHECK_JSON"))
+          lint = load(os.environ.get("LINT_JSON"))
+          check_findings = findings_of(check)
+          lint_findings = findings_of(lint)
+
+          lint_status = status_of("LINT_STATUS")
+          check_status = status_of("CHECK_STATUS")
+          index_status = status_of("INDEX_STATUS")
+          index_drift = os.environ.get("INDEX_DRIFT", "").strip()
+          base_ref = os.environ.get("BASE_REF", "")
+          mode = os.environ.get("GOTDOCS_MODE", "warn")
+
+          blocking = mode == "error"
+          ok = lint_status == 0 and check_status == 0 and index_status == 0
+          # The index gate is the only unconditional failure; see the header.
+          fails_job = index_status != 0 or (blocking and not ok)
+
+          # The marker is how the next run finds this comment instead of adding
+          # a second one. Do not change it without changing the curl step.
+          add("<!-- gotdocs-report -->")
+          add("## gotdocs")
+          add()
+          add("Base: `origin/%s` &middot; enforcement: `enforce.ci = %s`" % (base_ref, mode))
+          add()
+          add("| gate | result | blocking |")
+          add("| --- | --- | --- |")
+          add(
+              "| lint | %s | %s |"
+              % (
+                  "passed" if lint_status == 0 else "failed (exit %d)" % lint_status,
+                  "yes" if blocking else "no",
+              )
+          )
+          add(
+              "| freshness check | %s | %s |"
+              % (
+                  "passed"
+                  if check_status == 0
+                  else "%d stale/blocking finding(s) (exit %d)"
+                  % (len(check_findings), check_status),
+                  "yes" if blocking else "no",
+              )
+          )
+          add(
+              "| committed index | %s | yes |"
+              % ("current" if index_status == 0 else "out of date")
+          )
+          add()
+
+          if ok:
+              add("All gates passed. Documentation is in step with this change.")
+              add()
+          else:
+              if not blocking and index_status == 0:
+                  add(
+                      "This job is **advisory** (`enforce.ci` is `%s`), so it is not "
+                      "failing the pull request. The findings below are real; they will "
+                      "be recorded in `.gotdocs/DEBT.md` when this lands on main." % mode
+                  )
+                  add()
+              table("Stale documentation", check_findings)
+              table("Lint findings", lint_findings)
+
+              if index_status != 0:
+                  add("### Index out of date (this one is blocking)")
+                  add()
+                  add(
+                      "`.gotdocs/index.json` / `.gotdocs/INDEX.md` do not match what "
+                      "this tree generates. They are committed generated files, so a "
+                      "stale copy makes every later diff misleading. Run "
+                      "`bin/gotdocs index` and commit the result."
+                  )
+                  add()
+                  if index_drift:
+                      add("<details><summary>diff</summary>")
+                      add()
+                      add("```diff")
+                      add(index_drift)
+                      add("```")
+                      add()
+                      add("</details>")
+                      add()
+
+              add("### How to fix")
+              add()
+              add("- Ask Claude to run `/gotdocs-update` on this branch.")
+              add("- Or edit each document above and commit it.")
+              add(
+                  "- Or, if a document was reviewed and needs no change, run "
+                  "`bin/gotdocs verify <doc-id>` and commit the stamped frontmatter."
+              )
+              add(
+                  "- If the behaviour looks wrong rather than undocumented, run "
+                  "`bin/gotdocs why \"<what you observed>\"` first: an accepted decision "
+                  "record may already explain it."
+              )
+              add("- Or, if this pull request genuinely does not affect the docs, "
+                  "add the `gotdocs-skip` label.")
+              add()
+
+          body = "\n".join(lines) + "\n"
+
+          report_path = os.environ.get("REPORT_PATH")
+          if report_path:
+              with open(report_path, "w", encoding="utf-8") as handle:
+                  handle.write(body)
+
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with open(summary_path, "a", encoding="utf-8") as handle:
+                  handle.write(body)
+
+          output_path = os.environ.get("GITHUB_OUTPUT")
+          if output_path:
+              with open(output_path, "a", encoding="utf-8") as handle:
+                  handle.write("fails_job=%d\n" % (1 if fails_job else 0))
+                  handle.write("blocking=%d\n" % (1 if blocking else 0))
+
+          print(body)
+          PY
+
+      - name: Post the sticky pull request comment
+        if: always() && github.event.pull_request.head.repo.fork == false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT_PATH: ${{ runner.temp }}/gotdocs-report.md
+          API: ${{ github.api_url }}/repos/${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # One comment per pull request, edited in place. A fork's pull request
+          # gets a read-only token, so the job is skipped there entirely rather
+          # than failing on a 403; the job summary still carries the report.
+          set -u
+          [ -f "${REPORT_PATH}" ] || exit 0
+
+          existing=$(
+            curl -sS -H "Authorization: Bearer ${GH_TOKEN}" \
+                 -H "Accept: application/vnd.github+json" \
+                 "${API}/issues/${PR_NUMBER}/comments?per_page=100" 2>/dev/null |
+            python3 -c '
+          import json, sys
+          try:
+              comments = json.load(sys.stdin)
+          except Exception:
+              comments = []
+          if not isinstance(comments, list):
+              comments = []
+          for comment in comments:
+              if isinstance(comment, dict) and "<!-- gotdocs-report -->" in (comment.get("body") or ""):
+                  print(comment.get("id", ""))
+                  break
+          ' || true
+          )
+
+          payload=$(python3 -c '
+          import json, os, sys
+          with open(os.environ["REPORT_PATH"], "r", encoding="utf-8") as handle:
+              sys.stdout.write(json.dumps({"body": handle.read()}))
+          ')
+
+          if [ -n "${existing}" ]; then
+            curl -sS -X PATCH \
+                 -H "Authorization: Bearer ${GH_TOKEN}" \
+                 -H "Accept: application/vnd.github+json" \
+                 -d "${payload}" \
+                 "${API}/issues/comments/${existing}" >/dev/null 2>&1 ||
+              echo "gotdocs: could not update the pull request comment (report is in the job summary)"
+          else
+            curl -sS -X POST \
+                 -H "Authorization: Bearer ${GH_TOKEN}" \
+                 -H "Accept: application/vnd.github+json" \
+                 -d "${payload}" \
+                 "${API}/issues/${PR_NUMBER}/comments" >/dev/null 2>&1 ||
+              echo "gotdocs: could not post the pull request comment (report is in the job summary)"
+          fi
+          exit 0
+
+      - name: Enforce
+        if: always()
+        env:
+          LINT_STATUS: ${{ steps.lint.outputs.status }}
+          CHECK_STATUS: ${{ steps.check.outputs.status }}
+          INDEX_STATUS: ${{ steps.index.outputs.status }}
+          MODE: ${{ steps.prepare.outputs.mode }}
+        run: |
+          set -eu
+          blocking=0
+          [ "${MODE:-warn}" = 'error' ] && blocking=1
+          failed=0
+
+          if [ "${LINT_STATUS:-1}" -ne 0 ]; then
+            if [ "${blocking}" -eq 1 ]; then
+              echo "::error::bin/gotdocs lint failed (exit ${LINT_STATUS})"
+              failed=1
+            else
+              echo "::warning::bin/gotdocs lint failed (exit ${LINT_STATUS}); advisory because enforce.ci is ${MODE}"
+            fi
+          fi
+          if [ "${CHECK_STATUS:-1}" -ne 0 ]; then
+            if [ "${blocking}" -eq 1 ]; then
+              echo "::error::documentation is stale for this change (exit ${CHECK_STATUS}); see the job summary"
+              failed=1
+            else
+              echo "::warning::documentation is stale for this change; advisory because enforce.ci is ${MODE}"
+            fi
+          fi
+          # Always blocking: a committed generated file that does not match the
+          # tree is a defect in the change set itself, not a documentation debt.
+          if [ "${INDEX_STATUS:-1}" -ne 0 ]; then
+            echo "::error::.gotdocs index is out of date; run 'bin/gotdocs index' and commit"
+            failed=1
+          fi
+
+          if [ "${failed}" -ne 0 ]; then
+            echo "Ask Claude to run /gotdocs-update on this branch, or add the gotdocs-skip label."
+            exit 1
+          fi
+          echo "gotdocs: all blocking gates passed (enforce.ci=${MODE})"
+
+  record:
+    name: record doc debt
+    runs-on: ubuntu-latest
+    # A fork's copy of main has nothing to record and nowhere useful to push it.
+    if: >-
+      github.event_name == 'push' &&
+      github.event.repository.fork == false &&
+      !contains(github.event.head_commit.message, '[gotdocs skip]')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Persist the token so the push at the end can authenticate.
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Record, resolve and render the ledger
+        id: ledger
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -eu
+          [ -f bin/gotdocs ] || { echo "bin/gotdocs is missing; nothing to record"; exit 0; }
+          chmod +x bin/gotdocs
+
+          # The push range. `github.event.before` is all zeros for a new branch
+          # and can point at a commit that no longer exists after a force push,
+          # so it is verified before being used.
+          base=""
+          case "${BEFORE:-}" in
+            *[!0]*)
+              if git rev-parse --verify --quiet "${BEFORE}^{commit}" >/dev/null; then
+                base="${BEFORE}"
+              fi
+              ;;
+          esac
+          if [ -z "${base}" ]; then
+            base=$(git rev-parse --verify --quiet 'HEAD~1' || true)
+          fi
+          if [ -z "${base}" ]; then
+            echo "no previous commit to compare against; nothing to record"
+            echo "changed=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "recording against ${base}"
+
+          # --resolve-absent closes entries this run no longer reports, scoped to
+          # the paths it actually examined, so a narrow push cannot wipe the
+          # ledger. --source ci is stamped on every entry it opens.
+          ./bin/gotdocs debt record --base "${base}" --source ci --resolve-absent
+          ./bin/gotdocs debt render
+
+          if [ -n "$(git status --porcelain -- .gotdocs/debt.jsonl .gotdocs/DEBT.md)" ]; then
+            echo "changed=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=0" >> "$GITHUB_OUTPUT"
+            echo "ledger unchanged; nothing to commit"
+          fi
+
+      - name: Commit the ledger back to main
+        if: steps.ledger.outputs.changed == '1'
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -u
+          git config user.name  'gotdocs[bot]'
+          git config user.email 'gotdocs@users.noreply.github.com'
+          git add -- .gotdocs/debt.jsonl .gotdocs/DEBT.md
+
+          # [gotdocs skip] keeps this commit out of gotdocs' own enforcement and
+          # out of the `record` job's `if:` guard; [skip ci] keeps every other
+          # workflow in the repository from running on a bookkeeping commit.
+          # Both are needed: they are read by different systems.
+          git commit -m 'chore(gotdocs): record doc debt [gotdocs skip] [skip ci]' ||
+            { echo "nothing staged after all"; exit 0; }
+
+          # Somebody else may have pushed while this job ran. Rebase the single
+          # ledger commit onto the new tip and retry. The ledger is regenerated
+          # from the tree on every run, so losing this race entirely is harmless
+          # -- which is why the loop gives up quietly instead of failing the job.
+          attempt=1
+          while [ "${attempt}" -le 3 ]; do
+            if git push origin "HEAD:${BRANCH}"; then
+              echo "gotdocs: ledger pushed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "gotdocs: push rejected, rebasing (attempt ${attempt})"
+            git fetch --no-tags origin "${BRANCH}" || break
+            git rebase "origin/${BRANCH}" || { git rebase --abort || true; break; }
+            attempt=$((attempt + 1))
+          done
+
+          echo "::warning::could not push the doc-debt ledger after ${attempt} attempt(s); the next push to ${BRANCH} will regenerate it"
+          exit 0
