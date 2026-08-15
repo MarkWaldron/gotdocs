@@ -263,7 +263,7 @@ def render_lint_text(findings, doc_count, palette=None, quiet=False, warnings=No
             lines.append("")
         lines.append(
             palette.yellow(
-                "gotdocs: %d portability warning%s (not blocking; re-run with --strict to fail on them)"
+                "gotdocs: %d warning%s (not blocking)"
                 % (len(warnings), "" if len(warnings) == 1 else "s")
             )
         )

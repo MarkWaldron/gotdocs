@@ -11,7 +11,7 @@ owners: ["@mark"]
 tags: [runbook, adoption, migration, rollout]
 status: current
 updated: 2026-08-15
-verified_at: 3d8b6cd
+verified_at: d1956a8
 ---
 
 # Runbook: Adopting Gotdocs in an Existing Repo

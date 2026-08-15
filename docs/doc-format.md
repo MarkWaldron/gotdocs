@@ -139,6 +139,27 @@ globbing. `fnmatch`'s `*` crosses `/`, which would make `src/*` match
 | `[abc]` | one of `a`, `b`, `c` | any other char |
 | `[a-z]` | one char in the range | outside the range |
 | `[!abc]` | one char that is not `a`, `b`, or `c` | `a`, `b`, `c` |
+| `\x` | the literal character `x`. Only `[`, `]`, `*`, `?` and `\` may be escaped | — |
+
+### Framework route directories must be escaped
+
+A path that genuinely contains `[` and `]` — a Next.js, Remix or SvelteKit dynamic route —
+is not a literal in this dialect. `[id]` is a character class matching one of `i` or `d`,
+so the pattern matches nothing at all and the document is never marked impacted:
+
+```yaml
+covers:
+  - src/app/posts/[id]/page.tsx      # WRONG - matches nothing, silently
+  - src/app/posts/\[id\]/page.tsx    # right - literal brackets
+  - src/app/posts/*/page.tsx         # also fine when the segment name does not matter
+```
+
+Parentheses are **not** metacharacters: Next.js route groups like `src/app/(app)/**` work
+as written and need no escaping.
+
+`bin/gotdocs lint` warns when a `covers` glob matches no tracked file, which is how this
+gets caught rather than rotting in silence. A backslash before anything other than
+`[ ] * ? \` is still an error — patterns are always `/`-separated, never `\`.
 
 Worked examples:
 

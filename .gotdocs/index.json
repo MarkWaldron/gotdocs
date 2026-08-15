@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at_sha": "3d8b6cd",
+  "generated_at_sha": "d1956a8",
   "roots": [
     "docs",
     "runbooks",
@@ -66,7 +66,7 @@
         "python"
       ],
       "updated": "2026-08-15",
-      "verified_at": "3d8b6cd",
+      "verified_at": "d1956a8",
       "symptoms": [
         "there is no pip install step and no requirements.txt anywhere",
         "gotdocs printed a warning about python and then let my commit through",
@@ -101,7 +101,7 @@
         "globs"
       ],
       "updated": "2026-08-15",
-      "verified_at": "3d8b6cd",
+      "verified_at": "d1956a8",
       "symptoms": [
         "a doc was marked stale for a change that did not affect what the doc says",
         "I renamed a variable and three docs went stale",
@@ -324,7 +324,7 @@
         "workflow"
       ],
       "updated": "2026-08-15",
-      "verified_at": "3d8b6cd"
+      "verified_at": "d1956a8"
     },
     {
       "id": "cli-reference",
@@ -512,7 +512,7 @@
         "internals"
       ],
       "updated": "2026-08-15",
-      "verified_at": "3d8b6cd"
+      "verified_at": "d1956a8"
     },
     {
       "id": "onboarding-local-setup",
@@ -537,7 +537,7 @@
         "testing"
       ],
       "updated": "2026-08-15",
-      "verified_at": "3d8b6cd"
+      "verified_at": "d1956a8"
     },
     {
       "id": "onboarding-start-here",
@@ -606,7 +606,7 @@
         "rollout"
       ],
       "updated": "2026-08-15",
-      "verified_at": "3d8b6cd"
+      "verified_at": "d1956a8"
     },
     {
       "id": "runbook-ci-check-failing",

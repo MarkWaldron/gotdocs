@@ -10,7 +10,7 @@ owners: ["@mark"]
 tags: [agents, claude, skills, tokens, workflow]
 status: current
 updated: 2026-08-15
-verified_at: 3d8b6cd
+verified_at: d1956a8
 ---
 
 # Agent Workflow — How Claude Uses Gotdocs

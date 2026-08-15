@@ -31,7 +31,7 @@ tags:
 status: accepted
 decided_on: 2026-08-14
 updated: 2026-08-15
-verified_at: 3d8b6cd
+verified_at: d1956a8
 ---
 
 # Staleness is computed from declared covers globs, not from content analysis

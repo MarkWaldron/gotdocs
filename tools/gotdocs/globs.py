@@ -99,14 +99,37 @@ def validate_pattern(pattern):
         raise GlobError(
             "negation is not supported in glob patterns: %r" % (pattern,), pattern
         )
-    if "\\" in pattern:
-        raise GlobError(
-            "backslash separators are not supported; use '/': %r" % (pattern,), pattern
-        )
+    _check_escapes(pattern)
     if "//" in pattern:
         raise GlobError("empty path segment in glob pattern: %r" % (pattern,), pattern)
     _check_classes(pattern)
     return pattern
+
+
+# The only characters a backslash may escape. Anything else after a backslash is
+# almost certainly a Windows-style path separator, which is still an error --
+# patterns are always '/'-separated.
+ESCAPABLE = "[]*?\\"
+
+
+def _check_escapes(pattern):
+    i = 0
+    n = len(pattern)
+    while i < n:
+        if pattern[i] == "\\":
+            if i + 1 >= n:
+                raise GlobError(
+                    "glob pattern ends with a dangling '\\': %r" % (pattern,), pattern
+                )
+            if pattern[i + 1] not in ESCAPABLE:
+                raise GlobError(
+                    "backslash separators are not supported; use '/'. "
+                    "'\\' only escapes one of %s: %r" % (ESCAPABLE, pattern),
+                    pattern,
+                )
+            i += 2
+            continue
+        i += 1
 
 
 def _check_classes(pattern):
@@ -114,6 +137,9 @@ def _check_classes(pattern):
     n = len(pattern)
     while i < n:
         ch = pattern[i]
+        if ch == "\\":
+            i += 2
+            continue
         if ch == "[":
             j = i + 1
             if j < n and pattern[j] in "!^":
@@ -243,6 +269,15 @@ def _translate_segment(segment, pattern):
     n = len(segment)
     while i < n:
         ch = segment[i]
+        if ch == "\\":
+            # "\" escapes the next character, making it literal. This is the only
+            # way to write a path that really contains "[" or "]" -- e.g. a
+            # Next.js dynamic route segment, "app/posts/\[id\]/page.tsx". Without
+            # it "[id]" is a character class matching one of "i" or "d", so the
+            # pattern silently matches nothing.
+            out.append(re.escape(segment[i + 1]))
+            i += 2
+            continue
         if ch == "*":
             # A single "*" never crosses "/". Two or more in a row are "**" and
             # do cross it, even when the run shares a segment with other

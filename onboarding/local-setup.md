@@ -12,7 +12,7 @@ owners: ["@mark"]
 tags: [onboarding, setup, hooks, testing]
 status: current
 updated: 2026-08-15
-verified_at: 3d8b6cd
+verified_at: d1956a8
 ---
 
 # Local Setup

@@ -27,7 +27,7 @@ tags:
 status: accepted
 decided_on: 2026-08-14
 updated: 2026-08-15
-verified_at: 3d8b6cd
+verified_at: d1956a8
 ---
 
 # The CLI is vendored Python 3.9+ standard library only, behind a POSIX sh shim

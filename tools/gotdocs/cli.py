@@ -879,6 +879,7 @@ def cmd_lint(context):
     findings.sort(key=lambda finding: finding.sort_key())
 
     warnings = []
+    warnings.extend(_rotted_cover_warnings(context, doc_set))
     if getattr(args, "portability", False):
         issues = _portability_issues(context, doc_set)
         # Warnings by default: a document that renders oddly on one of six
@@ -901,6 +902,56 @@ def cmd_lint(context):
             )
         )
     return EXIT_USAGE if findings else EXIT_OK
+
+
+def _rotted_cover_warnings(context, doc_set):
+    """Warn about ``covers`` globs that match no file in the repository.
+
+    A glob that matches nothing is indistinguishable from a document nobody
+    touches: `check` never marks it impacted, so it rots in total silence. The
+    common cause is a path that really contains glob metacharacters -- a Next.js
+    or SvelteKit route segment like ``app/posts/[id]/page.tsx``, where ``[id]``
+    is read as a character class matching one of "i" or "d" and therefore
+    matches nothing. Escape it: ``app/posts/\\[id\\]/page.tsx``.
+
+    This is a warning, never a finding: a document may legitimately name a path
+    that is about to exist, and upgrading gotdocs should not start failing a
+    commit that has nothing to do with the stale glob.
+    """
+    repo = context.repo
+    if repo is None or not getattr(repo, "exists", True):
+        return []
+    try:
+        paths = repo.tracked_files()
+    except Exception:
+        return []
+    if not paths:
+        return []
+    warnings = []
+    for doc in doc_set.docs:
+        for pattern in doc.covers:
+            try:
+                compiled = globs.compile_pattern(pattern)
+            except Exception:
+                continue  # already reported by the frontmatter lint pass
+            if any(compiled.match(path) for path in paths):
+                continue
+            hint = "no tracked file matches it"
+            if "[" in pattern:
+                hint = (
+                    "no tracked file matches it -- '[...]' is a character class; "
+                    "escape a literal bracket as '\\[' and '\\]'"
+                )
+            warnings.append(
+                check_module.Finding(
+                    check_module.KIND_LINT,
+                    doc.path,
+                    "%s: covers %r matches nothing (%s)" % (doc.path, pattern, hint),
+                    "fix the glob in %s, or drop it if the code is gone" % (doc.path,),
+                    doc_id=doc.id,
+                )
+            )
+    return warnings
 
 
 def _dedupe_findings(findings):

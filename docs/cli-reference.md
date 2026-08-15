@@ -325,8 +325,26 @@ $ bin/gotdocs lint
 gotdocs: no lint errors in 14 documents
 ```
 
-Exit `0` clean, `2` when there are lint errors. A `covers` pattern that matches
-zero files today is legal and is not reported.
+Exit `0` clean, `2` when there are lint errors.
+
+A `covers` pattern that matches **zero tracked files** is legal — a document may name a
+path that is about to exist — but it is reported as a **warning**, because a glob that
+matches nothing is indistinguishable from a document nobody touches: `check` never marks it
+impacted, so it rots in total silence. Warnings do not affect the exit code.
+
+```text
+$ bin/gotdocs lint
+gotdocs: no lint errors in 1 document
+
+gotdocs: 1 warning (not blocking)
+
+  docs/routes.md: covers 'src/app/posts/[id]/page.tsx' matches nothing (no tracked file
+  matches it -- '[...]' is a character class; escape a literal bracket as '\[' and '\]')
+    -> fix the glob in docs/routes.md, or drop it if the code is gone
+```
+
+That message is the common case: a framework dynamic-route directory written literally.
+See the glob dialect in [doc-format](doc-format.md).
 
 ### `--portability`
 

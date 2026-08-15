@@ -121,6 +121,23 @@ tree, so a bare `pytest` at the repo root collects gotdocs' own tests. Add an ex
 (`norecursedirs = tools/gotdocs` in `pytest.ini`/`setup.cfg`, or `--ignore=tools/gotdocs`),
 and add `__pycache__/` to `.gitignore` — it regenerates the moment anything runs.
 
+**Check `.gitignore` before you stage anything.** Step 8 runs `git add -A`, which stages
+whatever is untracked — including trees that must never be committed. Add these first if the
+target has them and does not already ignore them:
+
+```sh
+git -C . check-ignore -q .claude/worktrees || printf '\n.claude/worktrees/\n' >> .gitignore
+```
+
+`.claude/worktrees/` is the one that bites: Claude Code agent worktrees are **nested git
+repositories**, so `git add -A` stages them as gitlinks and prints
+`warning: adding embedded git repository`. A commit made that way records a submodule
+pointer to a directory that exists on one machine only. Removing them afterwards needs
+`git rm --cached <path>` per worktree — `git rm -r --cached .claude/worktrees` fails on
+gitlinks with `staged content different from both the file and the HEAD`, and `--force` is
+required. Ignore them up front instead. Check for the same problem with any other nested
+repo: `find . -mindepth 2 -name .git -maxdepth 4 -not -path './node_modules/*'`.
+
 **Not a GitHub repo?** Skip `.github/` and port the three gates the workflow runs into that
 CI system, in this form:
 
@@ -354,9 +371,23 @@ Record `HITS/TOTAL` per doc; step 8 reports it.
 Glob dialect (not fnmatch): `*` does not cross `/`, `**` does — including inside a segment,
 so `src/**.py` matches `src/a/b.py` — `a/**` excludes `a` itself, a trailing `/` means the
 directory and everything under it, a pattern with no `/` and no `**` matches the basename at
-any depth, no brace expansion, no `!` negation. The copy of this reference that exists in
-the target repo is `.gotdocs/README.md`; the long form is `docs/doc-format.md` in the
-gotdocs source.
+any depth, no brace expansion, no `!` negation. `\` escapes the next character.
+
+**Framework route directories need escaping.** `[...]` is a character class, so a Next.js,
+Remix or SvelteKit path written literally matches *nothing*:
+
+```
+covers: src/app/posts/[id]/page.tsx      # WRONG - "[id]" means one of "i" or "d"
+covers: src/app/posts/\[id\]/page.tsx    # right - literal brackets
+covers: src/app/posts/*/page.tsx         # also fine if the segment name is irrelevant
+```
+
+`bin/gotdocs lint` warns when a `covers` glob matches no tracked file, which is how you
+catch this. Run it after writing `covers` for any repo with bracketed route directories.
+Parentheses (`(app)`, `(marketing)`) are **not** metacharacters and need no escaping.
+
+The copy of this reference that exists in the target repo is `.gotdocs/README.md`; the long
+form is `docs/doc-format.md` in the gotdocs source.
 
 Verify each glob resolves to the files you meant:
 
