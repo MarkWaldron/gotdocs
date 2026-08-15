@@ -247,6 +247,13 @@ sh scripts/install-gotdocs.sh
 bin/gotdocs status
 ```
 
+The installer finishes by running `bin/gotdocs ci doctor`. Read its output — it
+is the only place the CI prerequisites that are *not* in the workflow file get
+checked: a read-only `GITHUB_TOKEN` (which silently caps the ledger job's
+`contents: write`), a default branch the workflow never triggers on, and
+`bin/gotdocs` committed without its executable bit. `bin/gotdocs ci doctor
+--apply` fixes the ones that do not need a human.
+
 Set `"pre_commit": "warn"` and commit. Tell the team two things and nothing more:
 
 - You will sometimes see gotdocs output after `git commit`. It does not block you.

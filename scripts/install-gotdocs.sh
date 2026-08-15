@@ -377,6 +377,24 @@ else
     fi
 fi
 
+# CI preflight. The workflow file is vendored above, but the things that
+# actually break a first run live in repository settings, not in the file: a
+# read-only GITHUB_TOKEN, a default branch the workflow does not trigger on, or
+# bin/gotdocs committed without its executable bit. Report them now, while
+# somebody is watching, rather than at the first pull request.
+if [ "$INDEX_OK" -eq 1 ]; then
+    say ''
+    set +e
+    "$REPO_ROOT/bin/gotdocs" ci doctor --quiet 2>/dev/null
+    CI_STATUS=$?
+    set -e
+    if [ "$CI_STATUS" -ne 0 ]; then
+        say ''
+        say 'gotdocs: CI is not ready yet -- see the FAIL lines above.'
+        say '  fix what can be fixed automatically: bin/gotdocs ci doctor --apply'
+    fi
+fi
+
 say ''
 say 'gotdocs: install complete.'
 say "  hooks directory: $HOOKS_DIR"

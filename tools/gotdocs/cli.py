@@ -18,6 +18,7 @@ import stat
 import sys
 
 from . import check as check_module
+from . import ci as ci_module
 from . import config as config_module
 from . import debt as debt_module
 from . import decisions as decisions_module
@@ -29,6 +30,7 @@ from . import index as index_module
 from . import portability
 from . import report
 from .errors import (
+    EXIT_FINDINGS,
     EXIT_OK,
     EXIT_USAGE,
     DocNotFoundError,
@@ -500,7 +502,62 @@ def build_parser():
     stats_parser.add_argument("--json", action="store_true")
     stats_parser.set_defaults(handler=cmd_debt_stats)
 
+    ci_parser = subparsers.add_parser(
+        "ci",
+        parents=[parent],
+        help="set up and verify continuous integration",
+    )
+    ci_parser.set_defaults(handler=_ci_help_handler(ci_parser))
+    ci_sub = ci_parser.add_subparsers(dest="ci_command", metavar="<subcommand>")
+
+    doctor_parser = ci_sub.add_parser(
+        "doctor",
+        parents=[parent],
+        help="check the CI prerequisites that do not live in the workflow file",
+        description=(
+            "Verify the repository state the workflow cannot declare for itself: "
+            "GITHUB_TOKEN write permission (the usual cause of a ledger push "
+            "failing after everything else passed), branch protection, whether "
+            "the workflow triggers on the real default branch, and whether "
+            "bin/gotdocs is committed executable. Remote checks need an "
+            "authenticated `gh`; without one they report 'unknown' and print "
+            "the click path instead."
+        ),
+    )
+    doctor_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="fix what can be fixed without a human (needs `gh` for the token setting)",
+    )
+    doctor_parser.add_argument("--json", action="store_true")
+    doctor_parser.set_defaults(handler=cmd_ci_doctor)
+
+    init_parser = ci_sub.add_parser(
+        "init",
+        parents=[parent],
+        help="write or refresh the CI definition for this repo",
+    )
+    init_parser.add_argument(
+        "--provider",
+        choices=ci_module.PROVIDERS,
+        default=ci_module.GITHUB,
+        help="default: github",
+    )
+    init_parser.add_argument(
+        "--force", action="store_true", help="overwrite an existing definition"
+    )
+    init_parser.add_argument("--json", action="store_true")
+    init_parser.set_defaults(handler=cmd_ci_init)
+
     return parser
+
+
+def _ci_help_handler(ci_parser):
+    def handler(context):
+        ci_parser.print_help(context.out)
+        return EXIT_OK
+
+    return handler
 
 
 def _debt_help_handler(debt_parser):
@@ -1927,6 +1984,97 @@ def cmd_debt_render(context):
     elif not context.quiet:
         context.write(
             "gotdocs: %s %s\n" % ("wrote" if changed else "no change to", out_rel)
+        )
+    return EXIT_OK
+
+
+_CI_MARK = {
+    ci_module.OK: ("green", "ok"),
+    ci_module.FAIL: ("red", "FAIL"),
+    ci_module.WARN: ("yellow", "warn"),
+    ci_module.UNKNOWN: ("dim", "?"),
+}
+
+
+def cmd_ci_doctor(context):
+    checks, applied = ci_module.run_doctor(
+        context.root, apply_fixes=bool(getattr(context.args, "apply", False))
+    )
+    summary = ci_module.summarize(checks)
+
+    if context.json_mode:
+        context.write(
+            report.dumps(
+                {
+                    "ok": summary["ok"],
+                    "counts": summary["counts"],
+                    "applied": applied,
+                    "checks": [check.as_dict() for check in checks],
+                }
+            )
+        )
+        return EXIT_OK if summary["ok"] else EXIT_FINDINGS
+
+    palette = context.palette
+    lines = []
+    for check in checks:
+        color, label = _CI_MARK[check.status]
+        lines.append(
+            "  %-6s %-28s %s"
+            % (getattr(palette, color)(label), check.name, check.detail)
+        )
+        if check.status in (ci_module.FAIL, ci_module.UNKNOWN, ci_module.WARN):
+            if check.fix:
+                lines.append("         %s %s" % (palette.dim("->"), check.fix))
+            if check.gh_command:
+                lines.append("         %s %s" % (palette.dim("or:"), check.gh_command))
+
+    if applied:
+        lines.append("")
+        lines.append(palette.green("  fixed: %s" % (", ".join(applied),)))
+
+    header = (
+        palette.green("gotdocs: CI prerequisites look good")
+        if summary["ok"]
+        else palette.red(
+            "gotdocs: %d CI prerequisite(s) will break the first run"
+            % (summary["counts"].get(ci_module.FAIL, 0),)
+        )
+    )
+    unknown = summary["counts"].get(ci_module.UNKNOWN, 0)
+    context.write(header + "\n\n" + "\n".join(lines) + "\n")
+    if unknown and not context.quiet:
+        context.write(
+            "\n%s\n"
+            % palette.dim(
+                "  %d check(s) need an authenticated `gh` to verify "
+                "(brew install gh && gh auth login), then: bin/gotdocs ci doctor --apply"
+                % (unknown,)
+            )
+        )
+    return EXIT_OK if summary["ok"] else EXIT_FINDINGS
+
+
+def cmd_ci_init(context):
+    args = context.args
+    provider = getattr(args, "provider", ci_module.GITHUB)
+    written = ci_module.init_workflow(
+        context.root,
+        provider,
+        force=bool(getattr(args, "force", False)),
+        mode=context.config.mode_for("ci"),
+    )
+    if context.json_mode:
+        context.write(
+            report.dumps({"ok": True, "provider": provider, "written": written})
+        )
+        return EXIT_OK
+    if written:
+        context.write("gotdocs: wrote %s (%s)\n" % (written, provider))
+    else:
+        context.write(
+            "gotdocs: nothing to write for %s -- already current "
+            "(use --force to rewrite)\n" % (provider,)
         )
     return EXIT_OK
 

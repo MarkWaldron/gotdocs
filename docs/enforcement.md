@@ -285,6 +285,36 @@ error to fail the build rather than warn — the argument for doing so is that
 locally a broken gotdocs must never block a commit, while in CI a gotdocs that
 silently does nothing is worse than a red build.
 
+### Setup that is not in the workflow file
+
+Three more requirements live in repository settings, where the workflow cannot
+declare or assert them. Run the preflight rather than discovering them at the
+first pull request:
+
+```sh
+bin/gotdocs ci doctor          # exit 1 if the first run will break
+bin/gotdocs ci doctor --apply  # fixes what does not need a human
+```
+
+- **Workflow token permissions.** Repositories created since 2023 default to a
+  read-only `GITHUB_TOKEN`. That default is a **cap**, not a default: the
+  `record` job requests `permissions: contents: write` and still receives a
+  read-only token, so every step succeeds and the final `git push` fails with a
+  403. Fix at Settings → Actions → General → Workflow permissions → *Read and
+  write permissions*, or `ci doctor --apply` with an authenticated `gh`.
+- **The default branch.** The workflow triggers on `push: branches: [main]`. On a
+  `master` repository the `record` job is never invoked and nothing says so —
+  the ledger simply stays empty forever. `bin/gotdocs ci init --force` rewrites
+  the trigger to the real default branch.
+- **Branch protection.** A protected default branch that requires pull requests
+  rejects the ledger push. There is no automatic fix, because the right answer
+  depends on why it is protected: switch `enforce.ci` to `error` and drop the
+  record job, let `github-actions[bot]` bypass the rule, or have the job open a
+  pull request instead of pushing.
+
+`scripts/install-gotdocs.sh` runs `ci doctor` at the end of an install, so an
+adopter sees all of this while they are still setting up.
+
 Failure diagnosis is in [runbooks/ci-check-failing.md](../runbooks/ci-check-failing.md).
 
 ## Escape hatches, and what each costs

@@ -613,6 +613,74 @@ and `--list-targets` prints the live version.
 
 ---
 
+## `gotdocs ci`
+
+```text
+bin/gotdocs ci doctor [--apply] [--json]
+bin/gotdocs ci init [--provider github|gitlab] [--force] [--json]
+```
+
+The workflow file is vendored by the installer, so the file is never the
+problem. What breaks a first run is repository state the file cannot declare for
+itself. `ci doctor` checks exactly that.
+
+### `ci doctor`
+
+| Check | What it catches |
+| --- | --- |
+| `workflow-present` | `.github/workflows/gotdocs.yml` is missing |
+| `full-history` | a checkout without `fetch-depth: 0`, so `REF...HEAD` has no merge base |
+| `default-branch` | the workflow triggers on `main` but the repo's default branch is `master`, so the debt ledger job never runs at all |
+| `cli-vendored` | `bin/gotdocs` missing, or not executable |
+| `cli-exec-bit-committed` | `bin/gotdocs` executable on disk but committed `100644` — fails only on the runner, which is the worst place to find out |
+| `workflow-token-permissions` | `GITHUB_TOKEN` is read-only for the repository. This is a **cap**: the record job asks for `contents: write` and still gets a read-only token, so the ledger commit fails at `git push` after everything else passed |
+| `branch-protection` | the default branch requires pull requests, so the ledger push is rejected |
+
+The last two need an authenticated `gh`. Without one they report `unknown` and
+print the click path and the equivalent `gh api` call rather than failing:
+
+```text
+$ bin/gotdocs ci doctor
+gotdocs: 1 CI prerequisite(s) will break the first run
+
+  ok     workflow-present             .github/workflows/gotdocs.yml exists
+  ok     full-history                 checkout uses fetch-depth: 0
+  FAIL   default-branch               default branch is 'master' but the workflow
+                                      only triggers on main -- the debt ledger job
+                                      will never run
+         -> run: bin/gotdocs ci init --force   (rewrites the branch list)
+  ?      workflow-token-permissions   cannot verify without an authenticated `gh`
+         -> Settings -> Actions -> General -> Workflow permissions ->
+            'Read and write permissions' -> Save
+         or: gh api -X PUT repos/{owner}/{repo}/actions/permissions/workflow
+             -F default_workflow_permissions=write
+```
+
+Exit `0` when nothing will break, `1` when something will. `unknown` never
+fails the run — an unverifiable check is not a broken one.
+
+`--apply` fixes what can be fixed without a human: rewrites the branch list,
+restores the executable bit in both the working tree and the git index, and (with
+`gh`) flips the workflow token to read-write. It is idempotent, and it does
+nothing at all without the flag. Branch protection is never touched
+automatically — the right resolution depends on why the branch is protected, so
+`doctor` lists the three options and stops.
+
+`scripts/install-gotdocs.sh` runs `ci doctor` at the end, so an adopter sees
+these problems while they are still installing rather than at their first pull
+request.
+
+### `ci init`
+
+Writes or refreshes the CI definition. For `--provider github` it rewrites the
+vendored workflow's `on: push: branches:` list to the repository's real default
+branch — the one edit every non-`main` repo needs and nobody remembers. For
+`--provider gitlab` it generates `.gitlab-ci.gotdocs.yml`, with `--mode` and
+`allow_failure` derived from `enforce.ci` in your config. Existing files are
+left alone unless `--force`.
+
+---
+
 ## `gotdocs debt`
 
 ```text

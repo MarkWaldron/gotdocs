@@ -277,6 +277,50 @@ unblock the PR with the `gotdocs-skip` label, file the bug, and fix it.
 
 ---
 
+## 6 — The ledger job never ran, or could not push
+
+This one does not turn the pull request red. It fails silently on `main` after
+the merge, so the symptom is `.gotdocs/debt.jsonl` never changing no matter how
+much doc debt accumulates.
+
+**First, run the preflight — it identifies all three causes:**
+
+```sh
+bin/gotdocs ci doctor
+```
+
+### The job never ran
+
+`ci doctor` reports `FAIL default-branch`. The workflow triggers on
+`push: branches: [main]` and your default branch is something else, so nothing
+ever invoked it. Check the Actions tab: there will be no `record` runs at all,
+which is the tell that distinguishes this from a push failure.
+
+```sh
+bin/gotdocs ci init --force    # rewrites the branch list to the real default
+```
+
+### The job ran and failed at `git push`
+
+Open the run and look at the last step. Two different causes, two different
+fixes:
+
+| Log line | Cause | Fix |
+| --- | --- | --- |
+| `remote: Permission to ... denied to github-actions[bot]` or `403` | `GITHUB_TOKEN` is read-only for the repository. The job's `permissions: contents: write` is capped by the repository setting and cannot raise itself. | Settings → Actions → General → Workflow permissions → **Read and write permissions** → Save. Or `bin/gotdocs ci doctor --apply` with `gh` authenticated. |
+| `protected branch hook declined` or `required status check` | Branch protection on the default branch rejects a direct push. | Pick one: set `enforce.ci` to `error` and delete the record job (CI blocks instead of recording); allow `github-actions[bot]` to bypass the rule; or change the job to open a pull request instead of pushing. |
+
+`ci doctor` cannot fix branch protection for you — which of those three is right
+depends on why the branch is protected in the first place.
+
+### The job ran, pushed nothing, and that was correct
+
+`gotdocs: ledger unchanged` in the log means there was no new debt. Not a
+failure. `write_ledger` returns "unchanged" precisely so the job does not commit
+an identical file on every merge.
+
+---
+
 ## Verify the fix
 
 ```sh

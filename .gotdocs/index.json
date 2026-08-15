@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at_sha": "d1956a8",
+  "generated_at_sha": "24024f5",
   "roots": [
     "docs",
     "runbooks",
@@ -324,7 +324,7 @@
         "workflow"
       ],
       "updated": "2026-08-15",
-      "verified_at": "d1956a8"
+      "verified_at": "24024f5"
     },
     {
       "id": "cli-reference",
@@ -537,7 +537,7 @@
         "testing"
       ],
       "updated": "2026-08-15",
-      "verified_at": "d1956a8"
+      "verified_at": "24024f5"
     },
     {
       "id": "onboarding-start-here",
@@ -674,7 +674,7 @@
         "unblock"
       ],
       "updated": "2026-08-15",
-      "verified_at": "3d8b6cd"
+      "verified_at": "24024f5"
     },
     {
       "id": "runbook-stale-doc-triage",

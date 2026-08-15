@@ -62,6 +62,7 @@ no pip, no PyYAML, no network. See [dependencies/python3.md](../dependencies/pyt
 | `tools/gotdocs/index.py` | Walks the roots, reads frontmatter, writes `.gotdocs/index.json` and `.gotdocs/INDEX.md` reproducibly. |
 | `tools/gotdocs/check.py` | The core rule: change set -> impacted -> satisfied/stale -> findings. |
 | `tools/gotdocs/report.py` | Renders findings as grouped human text or as the `--json` contract. |
+| `tools/gotdocs/ci.py` | CI preflight. Checks the setup the workflow file cannot declare — token permissions, branch protection, trigger branch, the committed exec bit — and generates a definition per provider. Optional `gh`; degrades to `unknown` without it. |
 | `tools/gotdocs/errors.py` | Error types and the graceful-degradation boundary. |
 | `tools/gotdocs/tests/` | `python3 -m unittest discover` — stdlib `unittest`, no runner dependency. |
 

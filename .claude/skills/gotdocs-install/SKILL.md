@@ -138,8 +138,27 @@ gitlinks with `staged content different from both the file and the HEAD`, and `-
 required. Ignore them up front instead. Check for the same problem with any other nested
 repo: `find . -mindepth 2 -name .git -maxdepth 4 -not -path './node_modules/*'`.
 
-**Not a GitHub repo?** Skip `.github/` and port the three gates the workflow runs into that
-CI system, in this form:
+**Run the CI preflight before you hand over.** The workflow file is vendored above, so the
+file is never the problem — repository state is:
+
+```sh
+bin/gotdocs ci doctor          # exit 1 means the first run will break
+bin/gotdocs ci doctor --apply  # fixes branch list + exec bit; token setting needs `gh`
+```
+
+The three that actually bite: a default branch the workflow does not trigger on (the debt
+ledger job then never runs, silently), `bin/gotdocs` committed `100644` so the runner
+cannot execute it, and a read-only `GITHUB_TOKEN` — which is a *cap*, so the record job's
+`permissions: contents: write` does not help and the ledger push fails at the very end.
+`scripts/install-gotdocs.sh` runs `ci doctor` for you; do not skip reading its output.
+
+Whatever `doctor` reports as `unknown` needs an authenticated `gh`. Tell the user the click
+path rather than leaving it unresolved: **Settings → Actions → General → Workflow
+permissions → Read and write permissions**.
+
+**Not a GitHub repo?** `bin/gotdocs ci init --provider gitlab` generates a working
+`.gitlab-ci.gotdocs.yml`. For any other system, port the three gates the workflow runs into
+that CI system, in this form:
 
 ```sh
 bin/gotdocs lint
