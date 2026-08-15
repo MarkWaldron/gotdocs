@@ -19,3 +19,6 @@ htmlcov/
 
 # OS noise
 .DS_Store
+
+# local product notes, not published
+idea.md
