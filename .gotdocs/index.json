@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at_sha": "24024f5",
+  "generated_at_sha": "23cb64b",
   "roots": [
     "docs",
     "runbooks",
@@ -100,8 +100,8 @@
         "staleness",
         "globs"
       ],
-      "updated": "2026-08-15",
-      "verified_at": "d1956a8",
+      "updated": "2026-10-04",
+      "verified_at": "23cb64b",
       "symptoms": [
         "a doc was marked stale for a change that did not affect what the doc says",
         "I renamed a variable and three docs went stale",
@@ -142,7 +142,7 @@
         "ci",
         "adoption"
       ],
-      "updated": "2026-08-15",
+      "updated": "2026-10-04",
       "verified_at": "3d8b6cd",
       "symptoms": [
         "gotdocs reported stale docs and the commit went through anyway",
@@ -212,8 +212,8 @@
         "verify",
         "staleness"
       ],
-      "updated": "2026-08-15",
-      "verified_at": "3d8b6cd",
+      "updated": "2026-10-04",
+      "verified_at": "23cb64b",
       "symptoms": [
         "I ran gotdocs verify and the stale finding disappeared",
         "verified_at holds a git sha that is not the commit I just made",
@@ -346,7 +346,7 @@
         "json",
         "agent-interface"
       ],
-      "updated": "2026-08-15",
+      "updated": "2026-10-04",
       "verified_at": "3d8b6cd"
     },
     {
@@ -391,7 +391,7 @@
         "git",
         "plumbing"
       ],
-      "updated": "2026-08-14",
+      "updated": "2026-10-04",
       "verified_at": "3d8b6cd"
     },
     {
@@ -489,7 +489,7 @@
         "ci",
         "rollout"
       ],
-      "updated": "2026-08-15",
+      "updated": "2026-10-04",
       "verified_at": "3d8b6cd"
     },
     {
@@ -511,7 +511,7 @@
         "cli",
         "internals"
       ],
-      "updated": "2026-08-15",
+      "updated": "2026-10-04",
       "verified_at": "d1956a8"
     },
     {
@@ -536,7 +536,7 @@
         "hooks",
         "testing"
       ],
-      "updated": "2026-08-15",
+      "updated": "2026-10-04",
       "verified_at": "24024f5"
     },
     {
@@ -557,8 +557,8 @@
         "onboarding",
         "orientation"
       ],
-      "updated": "2026-08-14",
-      "verified_at": "3d8b6cd"
+      "updated": "2026-10-04",
+      "verified_at": "23cb64b"
     },
     {
       "id": "publishing",
@@ -628,8 +628,8 @@
         "github-actions",
         "pull-request"
       ],
-      "updated": "2026-08-15",
-      "verified_at": "3d8b6cd"
+      "updated": "2026-10-04",
+      "verified_at": "23cb64b"
     },
     {
       "id": "runbook-doc-debt-review",
@@ -673,7 +673,7 @@
         "pre-commit",
         "unblock"
       ],
-      "updated": "2026-08-15",
+      "updated": "2026-10-04",
       "verified_at": "24024f5"
     },
     {
@@ -696,8 +696,8 @@
         "stale",
         "verify"
       ],
-      "updated": "2026-08-14",
-      "verified_at": "3d8b6cd"
+      "updated": "2026-10-04",
+      "verified_at": "23cb64b"
     }
   ]
 }

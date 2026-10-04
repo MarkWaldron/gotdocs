@@ -9,7 +9,7 @@ covers:
 owners: ["@mark"]
 tags: [cli, reference, json, agent-interface]
 status: current
-updated: 2026-08-15
+updated: 2026-10-04
 verified_at: 3d8b6cd
 ---
 
@@ -97,8 +97,8 @@ bin/gotdocs check [--staged | --base REF | --paths PATH...] [--json]
 | `--paths PATH...` | Change set is the literal list of paths. Needs no git history; useful for testing and for agents reasoning about files they are about to change. |
 | `--json` | Emit the JSON contract below instead of human text. |
 | `--mode MODE` | Override the configured mode for this run. `off` \| `warn` \| `error`. |
-| `--message TEXT` | Scan this string for the skip token instead of `.git/COMMIT_EDITMSG`. Pass `''` to disable the message check entirely. |
-| `--message-file PATH` | Read the commit message from this file instead of `.git/COMMIT_EDITMSG`. |
+| `--message TEXT` | Scan this string for the skip token. Without it (or `--message-file`) no message is scanned. |
+| `--message-file PATH` | Read the commit message to scan from this file. |
 
 Every path argument — `--paths` here, and the positional paths of `impacted` —
 is resolved against the current directory and re-expressed relative to the
@@ -143,12 +143,11 @@ Rule, in order:
 6. Doc-side findings are always reported: lint errors, edits to
    `status: deprecated` docs, duplicate ids, and a committed index that no longer
    matches the working tree.
-7. Everything is skipped when `GOTDOCS_SKIP=1` is set, or when the commit
-   message carries the skip token. With `--staged` and no `--message`, the
-   message is read from `.git/COMMIT_EDITMSG` **only when it differs from
-   HEAD's message** — git writes that file after the pre-commit stage, so a
-   leftover from the previous commit is ignored rather than treated as a skip
-   request.
+7. Everything is skipped when `GOTDOCS_SKIP=1` is set, or when a message given
+   with `--message` / `--message-file` carries the skip token.
+   `.git/COMMIT_EDITMSG` is **never read** — git writes that file after the
+   pre-commit stage, so it holds a leftover from an earlier commit, not a skip
+   request for this one.
 
 Human output is grouped by finding kind and every line carries a remediation:
 

@@ -9,7 +9,7 @@ covers:
 owners: ["@mark"]
 tags: [runbook, hooks, pre-commit, unblock]
 status: current
-updated: 2026-08-15
+updated: 2026-10-04
 verified_at: 24024f5
 ---
 
@@ -123,15 +123,15 @@ For more than two or three findings, work through
 
 ```sh
 GOTDOCS_SKIP=1 git commit -m "your message"        # always works
-git commit -m "your message [gotdocs skip]"        # best effort, see below
+git commit -m "your message [gotdocs skip]"        # pre-push only, see below
 ```
 
-Use `GOTDOCS_SKIP=1` when it has to work. The commit-message token is checked
-against `.git/COMMIT_EDITMSG`, which git does not reliably populate with the
-pending message before `pre-commit` runs — the hook additionally compares it
-against `HEAD`'s message so a previous commit's token cannot suppress this one.
-Use the token when you want the decision recorded in history, and the environment
-variable when you need it to take effect.
+Use `GOTDOCS_SKIP=1` to get a commit through. The commit-message token is not
+read at `pre-commit`: git writes the pending message to `.git/COMMIT_EDITMSG`
+only after the hook runs, so the file holds a leftover, never this commit's
+message. The token takes effect at `pre-push`. Use it when you want the decision
+recorded in history, and the environment variable when you need the commit to
+land.
 
 **What this costs:** the token stays in the commit message permanently and is
 greppable (`git log --grep='\[gotdocs skip\]'`). It does **not** skip CI — CI
@@ -263,11 +263,10 @@ ls -d "$(git rev-parse --git-dir)"/MERGE_HEAD \
 
 ### The skip token in the commit message did not work
 
-The hook reads `.git/COMMIT_EDITMSG`, and git does not guarantee that file holds
-the pending message at `pre-commit` time — it is often still the previous commit's
-message, which is why the hook also requires it to differ from `HEAD`'s message
-before honoring the token. Use `GOTDOCS_SKIP=1 git commit` instead; it is checked
-first and unconditionally.
+The hook does not read the commit message. Git writes `.git/COMMIT_EDITMSG` after
+`pre-commit` runs, so at that point the file holds an earlier message, not this
+one. Use `GOTDOCS_SKIP=1 git commit` instead; it is checked first and
+unconditionally. The token is honored at `pre-push`.
 
 ### The hook ran on `git push`, not `git commit`
 

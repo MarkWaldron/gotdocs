@@ -224,14 +224,21 @@ class SkipTests(CheckTestCase):
         self.assertEqual(result.exit_code(), 0)
         self.assertIn("[gotdocs skip]", result.skip_reason)
 
-    def test_skip_token_in_commit_editmsg(self):
+    def test_commit_editmsg_differing_from_head_does_not_skip(self):
+        """Regression: COMMIT_EDITMSG is never the message being written.
+
+        Git runs pre-commit before it writes the file, so whatever is there is
+        left over: an aborted commit, or a commit made on another branch. It
+        differs from HEAD's message, and used to be trusted for that reason.
+        """
         self.write("src/app.py", "print('v2')\n")
         self.add("src/app.py")
         git_dir = self.git("rev-parse", "--absolute-git-dir").strip()
         with open(git_dir + "/COMMIT_EDITMSG", "w") as handle:
             handle.write("chore: noise [gotdocs skip]\n")
         result = self.run_check()
-        self.assertTrue(result.skipped)
+        self.assertFalse(result.skipped)
+        self.assertEqual(self.stale_ids(result), ["component"])
 
     def test_leftover_commit_editmsg_does_not_skip(self):
         """Regression: a skip token in the *previous* commit must not linger.

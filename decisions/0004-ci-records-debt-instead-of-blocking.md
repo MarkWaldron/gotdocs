@@ -27,7 +27,7 @@ tags:
   - adoption
 status: accepted
 decided_on: 2026-08-14
-updated: 2026-08-15
+updated: 2026-10-04
 verified_at: 3d8b6cd
 ---
 
@@ -100,8 +100,9 @@ the change set that is wrong, which makes every later diff lie.
   `bin/gotdocs index` is red with
   `::error::.gotdocs index is out of date; run 'bin/gotdocs index' and commit`.
 - The `gotdocs-skip` label on a pull request skips the whole `check` job. The
-  `[gotdocs skip]` token in a commit message, or `GOTDOCS_SKIP=1` in the
-  environment, skips a local run.
+  `[gotdocs skip]` token in a commit message skips a pre-push run; it is not
+  read at pre-commit, where the message does not exist yet. `GOTDOCS_SKIP=1` in
+  the environment skips any local run.
 - The `record` job never fails the build. A ledger that cannot be pushed after
   three rebase attempts emits `::warning::could not push the doc-debt ledger`
   and exits 0, because the ledger is regenerated from the tree on the next push.

@@ -9,8 +9,8 @@ covers:
 owners: ["@mark"]
 tags: [runbook, triage, stale, verify]
 status: current
-updated: 2026-08-14
-verified_at: 3d8b6cd
+updated: 2026-10-04
+verified_at: 23cb64b
 ---
 
 # Runbook: Triaging N Stale Docs

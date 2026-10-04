@@ -9,8 +9,8 @@ covers:
 owners: ["@mark"]
 tags: [runbook, ci, github-actions, pull-request]
 status: current
-updated: 2026-08-15
-verified_at: 3d8b6cd
+updated: 2026-10-04
+verified_at: 23cb64b
 ---
 
 # Runbook: The Gotdocs CI Job Is Failing

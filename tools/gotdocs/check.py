@@ -13,8 +13,9 @@ From docs/architecture.md#the-core-rule-precisely, executed in order:
    when ``require_coverage`` is true.
 6. Doc-side findings are always reported: ``lint``, ``duplicate_id``,
    ``deprecated_edit`` and ``index_out_of_date``.
-7. Everything is skipped when the commit message or ``GOTDOCS_SKIP`` carries the
-   skip token.
+7. Everything is skipped when ``GOTDOCS_SKIP`` or a commit message the caller
+   supplies carries the skip token. ``.git/COMMIT_EDITMSG`` is never read: git
+   writes it after pre-commit runs, so it only ever holds a leftover.
 """
 
 import os
@@ -157,7 +158,7 @@ def sha_satisfies(verified_at, head_sha):
     return left[:shortest] == right[:shortest]
 
 
-def skip_requested(repo, config, message=None, source=SOURCE_STAGED, env=None):
+def skip_requested(config, message=None, env=None):
     """Return a reason string when this run should be skipped, else None."""
     environ = os.environ if env is None else env
 
@@ -169,11 +170,6 @@ def skip_requested(repo, config, message=None, source=SOURCE_STAGED, env=None):
         if config.skip_token and config.skip_token in raw:
             return "GOTDOCS_SKIP contains %s" % (config.skip_token,)
 
-    if message is None and repo is not None and source == SOURCE_STAGED:
-        # Best effort only: see GitRepo.pending_commit_message. A leftover
-        # COMMIT_EDITMSG from the previous commit is never treated as the
-        # message being written now.
-        message = repo.pending_commit_message()
     if message and config.skip_token and config.skip_token in message:
         return "commit message contains %s" % (config.skip_token,)
     return None
@@ -208,7 +204,7 @@ def run_check(
     if repo is not None:
         head = repo.head_sha_or_none(short=True)
 
-    reason = skip_requested(repo, config, message=message, source=source, env=env)
+    reason = skip_requested(config, message=message, env=env)
     if reason is not None:
         return CheckResult(
             findings=[],
