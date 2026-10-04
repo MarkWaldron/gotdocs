@@ -810,6 +810,15 @@ class ExportCommandTests(WiringTestCase):
         self.assertEqual(payload["documents"], 1)
         self.assertFalse(os.path.exists(os.path.join(self.root, "site-out")))
 
+    def test_out_dir_over_the_sources_is_a_usage_error(self):
+        before = self.read("docs/component.md")
+
+        code, _out, err = self.run_cli("export", "--target", "hugo", "--out", ".")
+
+        self.assertEqual(code, 2)
+        self.assertIn("docs", err)
+        self.assertEqual(self.read("docs/component.md"), before)
+
     def test_list_targets(self):
         code, payload, _err = self.run_json("export", "--list-targets")
         self.assertEqual(code, 0)

@@ -585,7 +585,7 @@ are skipped. Output is byte-deterministic.
 | Flag | Effect |
 | --- | --- |
 | `--target NAME` | One of `docusaurus`, `mkdocs`, `starlight`, `jekyll`, `hugo`, `github`. Default `publish.target`. An unknown name is exit `2` and lists the valid ones. |
-| `--out DIR` | Output directory. Default `publish.out_dir`. Relative paths resolve against the repo root. Exit `2` if neither is set. |
+| `--out DIR` | Output directory. Default `publish.out_dir`. Relative paths resolve against the repo root. Exit `2` if neither is set, or if any output would land inside a documentation root (`--out .`, `--out docs/site`): the sources live there. |
 | `--url-prefix P` | Site path the export is served under. Default `publish.url_prefix`. |
 | `--source-url URL` | Base URL for links that point at code rather than another document. Default `publish.source_url`. |
 | `--layout NAME` | Jekyll `layout:` value. Default `publish.layout`, then `page`. |

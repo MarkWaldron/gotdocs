@@ -119,7 +119,7 @@ python3 -m unittest discover -s tools/gotdocs/tests -t .
 
 ```text
 ----------------------------------------------------------------------
-Ran 819 tests in 45.7s
+Ran 826 tests in 44.1s
 
 OK
 ```

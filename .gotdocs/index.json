@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at_sha": "23cb64b",
+  "generated_at_sha": "73603b1",
   "roots": [
     "docs",
     "runbooks",
@@ -512,7 +512,7 @@
         "internals"
       ],
       "updated": "2026-10-04",
-      "verified_at": "d1956a8"
+      "verified_at": "73603b1"
     },
     {
       "id": "onboarding-local-setup",
@@ -581,7 +581,7 @@
         "portability",
         "lint"
       ],
-      "updated": "2026-08-15",
+      "updated": "2026-10-04",
       "verified_at": "3d8b6cd"
     },
     {
