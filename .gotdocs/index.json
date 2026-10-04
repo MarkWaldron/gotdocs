@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at_sha": "5dc4a3b",
+  "generated_at_sha": "9d0d75c",
   "roots": [
     "docs",
     "runbooks",
@@ -512,7 +512,7 @@
         "internals"
       ],
       "updated": "2026-10-04",
-      "verified_at": "5dc4a3b"
+      "verified_at": "9d0d75c"
     },
     {
       "id": "onboarding-local-setup",
@@ -606,7 +606,7 @@
         "rollout"
       ],
       "updated": "2026-10-04",
-      "verified_at": "5dc4a3b"
+      "verified_at": "9d0d75c"
     },
     {
       "id": "runbook-ci-check-failing",

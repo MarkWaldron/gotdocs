@@ -56,6 +56,10 @@ TYPE_TO_ROOT = {
 
 DEBT_SOURCES = ("manual", "hook", "ci")
 
+# Line 2 of every hook gotdocs ships; scripts/install-gotdocs.sh greps the same.
+_HOOK_MARKER = b"gotdocs-managed-hook"
+_HOOK_BACKUP_SUFFIX = ".bak"
+
 _SLUG_STRIP_RE = re.compile(r"[^a-z0-9]+")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -1167,12 +1171,12 @@ def _hook_state(root, repo):
         return ".git/hooks/pre-commit not installed — run: bin/gotdocs install"
     installed_bytes = _read_bytes(installed)
     if not os.path.exists(source):
-        if installed_bytes and b"gotdocs" in installed_bytes:
+        if _is_managed_hook(installed_bytes):
             return ".git/hooks/pre-commit installed (gotdocs)"
         return ".git/hooks/pre-commit installed (not gotdocs')"
     if installed_bytes == _read_bytes(source):
         return ".git/hooks/pre-commit installed (matches %s)" % (config_module.HOOK_SOURCE_PATH,)
-    if installed_bytes and b"gotdocs" in installed_bytes:
+    if _is_managed_hook(installed_bytes):
         return ".git/hooks/pre-commit installed but differs from %s — run: bin/gotdocs install --force" % (
             config_module.HOOK_SOURCE_PATH,
         )
@@ -1185,6 +1189,29 @@ def _read_bytes(path):
             return handle.read()
     except (IOError, OSError):
         return None
+
+
+def _is_managed_hook(hook_bytes):
+    """True when *hook_bytes* is a copy of a hook gotdocs ships.
+
+    Decided by the marker line, not by the word "gotdocs": a team's own hook
+    that calls ``bin/gotdocs check`` mentions gotdocs too, and is theirs.
+    """
+    return bool(hook_bytes) and _HOOK_MARKER in hook_bytes
+
+
+def _free_backup_path(target):
+    """First of ``<target>.bak``, ``.bak.1``, ``.bak.2`` ... that does not exist.
+
+    An existing backup is somebody's hook. Reusing its name is how a second
+    ``install --force`` replaced the saved team hook with an old gotdocs one.
+    """
+    backup = target + _HOOK_BACKUP_SUFFIX
+    attempt = 0
+    while os.path.lexists(backup):
+        attempt += 1
+        backup = "%s%s.%d" % (target, _HOOK_BACKUP_SUFFIX, attempt)
+    return backup
 
 
 def cmd_install(context):
@@ -1212,14 +1239,17 @@ def cmd_install(context):
             elif not context.quiet:
                 context.write("gotdocs: pre-commit hook already up to date\n")
             return EXIT_OK
-        is_gotdocs = bool(existing and b"gotdocs" in existing)
-        if not is_gotdocs and not context.args.force:
+        is_managed = _is_managed_hook(existing)
+        if not is_managed and not context.args.force:
             raise GotdocsError(
                 "a non-gotdocs pre-commit hook already exists at %s; chain it manually "
                 "or re-run with --force" % (target,)
             )
-        if context.args.force or not is_gotdocs:
-            backup = target + ".bak"
+
+        # Only a hook we do not own is worth keeping: a managed one is a copy
+        # of a file in .gotdocs/hooks/, recoverable from git.
+        if not is_managed:
+            backup = _free_backup_path(target)
             shutil.copyfile(target, backup)
 
     with io.open(target, "wb") as handle:

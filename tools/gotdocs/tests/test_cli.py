@@ -439,6 +439,81 @@ class InstallCommandTests(CliTestCase):
         self.assertIn(".bak", out)
         self.assertTrue(os.path.exists(self.hook_path() + ".bak"))
 
+    # -- regressions: `install` destroyed hooks it did not own ----------------
+
+    MANAGED_V1 = "#!/bin/sh\n# gotdocs-managed-hook v1\nexit 0\n"
+    MANAGED_V2 = "#!/bin/sh\n# gotdocs-managed-hook v1\n# newer\nexit 0\n"
+    TEAM_HOOK = "#!/bin/sh\necho the team hook\n"
+    # Mentions gotdocs, but is the user's own script, not a copy of ours.
+    USER_HOOK_CALLING_GOTDOCS = "#!/bin/sh\nnpm test || exit 1\nbin/gotdocs check --staged\n"
+
+    def write_hook(self, text, suffix=""):
+        os.makedirs(os.path.join(self.root, ".git", "hooks"), exist_ok=True)
+        with io.open(self.hook_path() + suffix, "w") as handle:
+            handle.write(text)
+
+    def read_hook(self, suffix=""):
+        with io.open(self.hook_path() + suffix) as handle:
+            return handle.read()
+
+    def test_a_user_hook_that_calls_gotdocs_is_not_overwritten(self):
+        self.write(".gotdocs/hooks/pre-commit", self.MANAGED_V1)
+        self.write_hook(self.USER_HOOK_CALLING_GOTDOCS)
+
+        code, _out, err = self.run_cli("install")
+
+        self.assertEqual(code, 2)
+        self.assertIn("--force", err)
+        self.assertEqual(self.read_hook(), self.USER_HOOK_CALLING_GOTDOCS)
+
+    def test_a_user_hook_that_calls_gotdocs_is_reported_as_foreign(self):
+        self.write(".gotdocs/hooks/pre-commit", self.MANAGED_V1)
+        self.write_hook(self.USER_HOOK_CALLING_GOTDOCS)
+
+        _code, out, _err = self.run_cli("status")
+
+        self.assertIn("foreign hook", out)
+
+    def test_forcing_twice_keeps_the_foreign_hook_backup(self):
+        """
+            install --force   team hook -> pre-commit.bak
+            install --force   pre-commit.bak must still be the team hook,
+                              not the gotdocs hook the first run installed
+        """
+        self.write(".gotdocs/hooks/pre-commit", self.MANAGED_V1)
+        self.write_hook(self.TEAM_HOOK)
+        self.run_cli("install", "--force")
+        self.write(".gotdocs/hooks/pre-commit", self.MANAGED_V2)
+
+        code, _out, _err = self.run_cli("install", "--force")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(self.read_hook(), self.MANAGED_V2)
+        self.assertEqual(self.read_hook(".bak"), self.TEAM_HOOK)
+
+    def test_force_never_overwrites_an_existing_backup(self):
+        self.write(".gotdocs/hooks/pre-commit", self.MANAGED_V1)
+        self.write_hook("#!/bin/sh\necho an older backup\n", suffix=".bak")
+        self.write_hook(self.TEAM_HOOK)
+
+        code, payload, _err = self.run_json("install", "--force")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(self.read_hook(".bak"), "#!/bin/sh\necho an older backup\n")
+        self.assertEqual(self.read_hook(".bak.1"), self.TEAM_HOOK)
+        self.assertEqual(payload["backup"], self.hook_path() + ".bak.1")
+
+    def test_a_managed_hook_is_upgraded_in_place(self):
+        self.write(".gotdocs/hooks/pre-commit", self.MANAGED_V2)
+        self.write_hook(self.MANAGED_V1)
+
+        code, payload, _err = self.run_json("install")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(self.read_hook(), self.MANAGED_V2)
+        self.assertIsNone(payload["backup"])
+        self.assertFalse(os.path.exists(self.hook_path() + ".bak"))
+
 
 class PathArgumentTests(CliTestCase):
     """Regression: absolute and ``../`` paths were silently mangled.

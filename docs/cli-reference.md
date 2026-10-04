@@ -425,10 +425,14 @@ it reports `already up to date` and does nothing.
 
 If a different hook is already there:
 
-- it contains `gotdocs` — treated as an older gotdocs hook, overwritten, previous
-  contents copied to `pre-commit.bak`
-- it does not — `install` refuses with exit 2 and tells you to chain it manually
-  or re-run with `--force`, which overwrites and leaves `pre-commit.bak`
+- it carries the `gotdocs-managed-hook` marker line — it is an older copy of the
+  gotdocs hook, and is overwritten in place. No backup: the source is in
+  `.gotdocs/hooks/`, under git.
+- it does not — it is somebody else's hook, even if it calls `bin/gotdocs`.
+  `install` refuses with exit 2 and tells you to chain it manually or re-run
+  with `--force`. `--force` copies it to `pre-commit.bak` first, then overwrites.
+  An existing backup is never overwritten: the next free name is used
+  (`pre-commit.bak.1`, `.bak.2`, …) and reported.
 
 **Use `scripts/install-gotdocs.sh` instead for normal setup.** It does more: it
 installs *both* the pre-commit and pre-push hooks, honors `core.hooksPath`,
