@@ -9,8 +9,8 @@ covers:
 owners: ["@mark"]
 tags: [architecture, cli, internals]
 status: current
-updated: 2026-08-15
-verified_at: d1956a8
+updated: 2026-10-04
+verified_at: c173369
 ---
 
 # Gotdocs Architecture
@@ -64,7 +64,7 @@ no pip, no PyYAML, no network. See [dependencies/python3.md](../dependencies/pyt
 | `tools/gotdocs/report.py` | Renders findings as grouped human text or as the `--json` contract. |
 | `tools/gotdocs/ci.py` | CI preflight. Checks the setup the workflow file cannot declare — token permissions, branch protection, trigger branch, the committed exec bit — and generates a definition per provider. Optional `gh`; degrades to `unknown` without it. |
 | `tools/gotdocs/errors.py` | Error types and the graceful-degradation boundary. |
-| `tools/gotdocs/tests/` | `python3 -m unittest discover` — stdlib `unittest`, no runner dependency. |
+| `tools/gotdocs/tests/` | `python3 -m unittest discover` — stdlib `unittest`, no runner dependency. `test_hooks.py` drives the shell hooks through real `git commit` and `git push`; `test_workflow.py` lifts the `record` job's `run:` blocks out of the workflow and executes them against a bare remote. CI runs the suite from `.github/workflows/tests.yml`. |
 
 Non-code artifacts:
 
@@ -87,8 +87,7 @@ Non-code artifacts:
             .git/hooks/pre-commit  (installed copy of .gotdocs/hooks/pre-commit)
                         |
                         |  skip if .git/MERGE_HEAD exists (merge/rebase in progress)
-                        |  skip if $GOTDOCS_SKIP, or a *pending* COMMIT_EDITMSG,
-                        |  carries the skip token
+                        |  skip if $GOTDOCS_SKIP is set
                         |  skip if python3 is missing (warn, exit 0)
                         v
                 bin/gotdocs check --staged
@@ -187,12 +186,12 @@ Non-code artifacts:
 6. **Doc-side findings, always reported.** Lint errors in frontmatter, editing a
    `status: deprecated` doc, duplicate `id` values, and `.gotdocs/index.json`
    being out of date relative to the working tree.
-7. **Skip.** If `GOTDOCS_SKIP=1` is set, or the commit message carries the skip
-   token (`[gotdocs skip]` by default), `check` reports nothing and exits 0.
-   With `--staged` the message comes from `.git/COMMIT_EDITMSG`, but only when
-   it differs from HEAD's message: git writes that file *after* the pre-commit
-   stage, so the leftover from the previous commit must not be read as this
-   commit's intent. `GOTDOCS_SKIP=1` is the deterministic bypass.
+7. **Skip.** If `GOTDOCS_SKIP=1` is set, or a message passed with `--message` /
+   `--message-file` carries the skip token (`[gotdocs skip]` by default),
+   `check` reports nothing and exits 0. `.git/COMMIT_EDITMSG` is never read:
+   git writes that file *after* the pre-commit stage, so it only holds a
+   leftover from an earlier commit, which must not be read as this commit's
+   intent. `GOTDOCS_SKIP=1` is the bypass at pre-commit.
 
 ### Why "edited OR verified"
 

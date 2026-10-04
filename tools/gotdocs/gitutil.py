@@ -205,54 +205,6 @@ class GitRepo(object):
                 return True
         return False
 
-    def commit_message(self):
-        """Return the raw contents of ``COMMIT_EDITMSG``, or None.
-
-        Callers almost always want :meth:`pending_commit_message` instead: at
-        pre-commit time this file has *not* been written for the commit being
-        made, so it still holds the previous commit's message.
-        """
-        try:
-            git_dir = self.git_dir()
-        except GitError:
-            return None
-        path = os.path.join(git_dir, "COMMIT_EDITMSG")
-        try:
-            with open(path, "rb") as handle:
-                return handle.read().decode("utf-8", "replace")
-        except (IOError, OSError):
-            return None
-
-    def pending_commit_message(self):
-        """The message being written *now*, or None when it cannot be known.
-
-        Git writes ``COMMIT_EDITMSG`` after the pre-commit stage, so during a
-        pre-commit run the file normally still contains the message of HEAD.
-        Trusting it verbatim means one commit carrying the skip token silently
-        suppresses gotdocs on every later commit. So the leftover is rejected:
-        the file is only treated as pending when its content differs from
-        HEAD's message. This mirrors the guard in .gotdocs/hooks/pre-commit and
-        makes a skip token best effort at pre-commit -- ``GOTDOCS_SKIP=1`` is
-        the reliable bypass there.
-        """
-        raw = self.commit_message()
-        if raw is None:
-            return None
-        pending = _strip_comment_lines(raw)
-        if pending.strip() == "":
-            return None
-        head_message = self.last_commit_message()
-        if head_message is not None and pending.strip() == head_message.strip():
-            return None
-        return pending
-
-    def last_commit_message(self):
-        """Message of HEAD, or None in an empty repository."""
-        if not self.has_commits():
-            return None
-        ok, out = self.try_run(["log", "-1", "--format=%B"])
-        return out if ok else None
-
     # -- change sets -------------------------------------------------------
 
     def staged_changes(self):
@@ -309,13 +261,6 @@ class GitRepo(object):
         """Every tracked path in the repository."""
         out = self.run(["ls-files", "-z"])
         return sorted(part for part in out.split("\0") if part)
-
-
-def _strip_comment_lines(text):
-    """Drop git's ``#`` scissors/instruction lines from a commit message."""
-    return "\n".join(
-        line for line in text.splitlines() if not line.startswith("#")
-    )
 
 
 def _parse_name_status_z(out):

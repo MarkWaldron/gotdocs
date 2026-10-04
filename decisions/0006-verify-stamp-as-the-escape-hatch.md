@@ -29,8 +29,8 @@ tags:
   - staleness
 status: accepted
 decided_on: 2026-08-14
-updated: 2026-08-15
-verified_at: 3d8b6cd
+updated: 2026-10-04
+verified_at: 23cb64b
 ---
 
 # The escape hatch is a recorded verify stamp, not a suppression flag

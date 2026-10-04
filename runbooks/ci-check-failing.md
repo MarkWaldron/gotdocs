@@ -9,8 +9,8 @@ covers:
 owners: ["@mark"]
 tags: [runbook, ci, github-actions, pull-request]
 status: current
-updated: 2026-08-15
-verified_at: 3d8b6cd
+updated: 2026-10-04
+verified_at: 2385222
 ---
 
 # Runbook: The Gotdocs CI Job Is Failing
@@ -19,6 +19,10 @@ The `gotdocs` job on a pull request is red. There are five things it can be.
 Identify which from the job log, then jump to that section.
 
 ## Symptom
+
+A red `tests` workflow (`unit tests (python …)`) is not this runbook: that is
+the CLI's own unit tests failing. Reproduce with
+`python3 -m unittest discover -s tools/gotdocs/tests -t .`.
 
 The `check` job (display name `docs freshness`) in
 `.github/workflows/gotdocs.yml` fails. It runs three gates, each recording its

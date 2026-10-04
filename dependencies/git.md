@@ -9,7 +9,7 @@ covers:
 owners: ["@mark"]
 tags: [dependency, git, plumbing]
 status: current
-updated: 2026-08-14
+updated: 2026-10-04
 verified_at: 3d8b6cd
 ---
 
@@ -40,11 +40,10 @@ shell in between (`subprocess.run(["git", ...])`).
 | Command | Used by | Purpose |
 | --- | --- | --- |
 | `git rev-parse --show-toplevel` | everything | Find the repo root. All paths are relative to it. |
-| `git rev-parse --absolute-git-dir` | `status`, `install`, skip-token read | Locate `COMMIT_EDITMSG`, `MERGE_HEAD`, hooks dir. Not always `.git/` — worktrees and submodules use a file pointer. `--absolute-git-dir`, not `--git-dir`: the CLI does not `cd`, so a relative answer would be resolved against the wrong directory. |
+| `git rev-parse --absolute-git-dir` | `status`, `install`, `debt --local` | Locate `MERGE_HEAD`, hooks dir, the local ledger. Not always `.git/` — worktrees and submodules use a file pointer. `--absolute-git-dir`, not `--git-dir`: the CLI does not `cd`, so a relative answer would be resolved against the wrong directory. |
 | `git rev-parse --verify --quiet HEAD` | everything that needs a sha | Does this repository have any commits at all? Drives the empty-repo branches below. |
 | `git rev-parse --short HEAD` | `check`, `verify`, `index`, `debt` | The head sha a doc's `verified_at` is compared against and stamped with. |
 | `git rev-parse --verify --quiet REF^{commit}` | `check --base` | Does the base ref exist at all? |
-| `git log -1 --format=%B` | `check --staged` | HEAD's message, used only to recognise a leftover `COMMIT_EDITMSG`. |
 | `git log -1 --format=%cd --date=short` | `debt record`, `debt resolve` | HEAD's **commit** date, stamped on ledger entries. The ledger never reads a wall clock, so it regenerates to identical bytes on any machine on any day. |
 | `git diff --cached --name-status -z --no-color HEAD` | `check --staged` | The staged change set. In a repo with no commits the `HEAD` argument is replaced by the empty-tree sha, so the first commit still produces a change set. |
 | `git diff --name-status -z --no-color REF...HEAD` | `check --base` | Branch change set against the merge base of `REF` and `HEAD`. |
@@ -76,14 +75,13 @@ non-zero exit ends in `exit 0` rather than a blocked commit.
 | Command | Where | Purpose |
 | --- | --- | --- |
 | `git rev-parse --show-toplevel` | both hooks | `cd` to the repo root before doing anything. |
-| `git rev-parse --git-dir` | both hooks | Find `MERGE_HEAD` / `COMMIT_EDITMSG`. Relative is fine here — the hook has already `cd`-ed to the root. |
-| `git log -1 --format=%B HEAD` | pre-commit | Compare against `COMMIT_EDITMSG` to reject a leftover message. |
+| `git rev-parse --git-dir` | both hooks | Find `MERGE_HEAD`. Relative is fine here — the hook has already `cd`-ed to the root. |
 | `git diff --cached --quiet --` | pre-commit | Nothing staged means nothing to check; leave immediately. |
 | `git rev-parse HEAD` | pre-push | Identify which stdin line describes the ref actually being pushed. |
 | `git rev-parse --verify --quiet <sha>^{commit}` | pre-push | Is the remote sha git handed us present locally? |
-| `git symbolic-ref --quiet refs/remotes/origin/HEAD` | pre-push | Base fallback. |
+| `git symbolic-ref --quiet refs/remotes/origin/HEAD` | pre-push | Base fallback. Also, for the pushed remote, names the default branch whose commits the skip-token scan leaves out. |
 | `git rev-list --max-parents=0 HEAD` | pre-push | Last-resort base: the root commit. |
-| `git log --format=%B BASE..HEAD` | pre-push | Skip-token scan over **every** commit being pushed. |
+| `git log --format=%B BASE..HEAD --not <remote default branch>` | pre-push | Skip-token scan over **every** commit being pushed that the default branch does not already have. |
 | `git fetch --no-tags origin +refs/heads/$BASE:...` | CI `check` job | Guarantee the base ref exists before diffing. |
 | `git status --porcelain -- .gotdocs/index.json .gotdocs/INDEX.md` | CI `check` job | The always-blocking committed-index gate. |
 | `git add` / `git commit` / `git push` / `git rebase` | CI `record` job only | Commits the regenerated doc-debt ledger back to `main`. This is the one place in the whole system that writes to a repository, it runs only on `push` to the default branch of a non-fork, and its commit message carries `[gotdocs skip] [skip ci]` so it cannot trigger itself. See [docs/doc-debt.md](../docs/doc-debt.md#the-two-ci-jobs). |
@@ -205,7 +203,7 @@ Details in [runbooks/ci-check-failing.md](../runbooks/ci-check-failing.md#4--bad
 
 ### Worktrees and submodules
 
-**Symptom:** the hook cannot find `COMMIT_EDITMSG`, or a hook is not installed
+**Symptom:** the hook cannot find `MERGE_HEAD`, or a hook is not installed
 where you expect.
 
 **Cause:** in a linked worktree, `.git` is a *file* containing

@@ -30,8 +30,8 @@ tags:
   - globs
 status: accepted
 decided_on: 2026-08-14
-updated: 2026-08-15
-verified_at: d1956a8
+updated: 2026-10-04
+verified_at: 23cb64b
 ---
 
 # Staleness is computed from declared covers globs, not from content analysis

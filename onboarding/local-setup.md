@@ -11,7 +11,7 @@ covers:
 owners: ["@mark"]
 tags: [onboarding, setup, hooks, testing]
 status: current
-updated: 2026-08-15
+updated: 2026-10-04
 verified_at: 24024f5
 ---
 
@@ -119,7 +119,7 @@ python3 -m unittest discover -s tools/gotdocs/tests -t .
 
 ```text
 ----------------------------------------------------------------------
-Ran 739 tests in 34.6s
+Ran 854 tests in 57.1s
 
 OK
 ```

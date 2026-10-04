@@ -9,8 +9,8 @@ covers:
 owners: ["@mark"]
 tags: [cli, reference, json, agent-interface]
 status: current
-updated: 2026-08-15
-verified_at: 3d8b6cd
+updated: 2026-10-04
+verified_at: 2385222
 ---
 
 # Gotdocs CLI Reference
@@ -34,6 +34,10 @@ Accepted by every command.
 | `--no-color` | Disable ANSI color. Color is also disabled automatically when stdout is not a TTY, and when `NO_COLOR` is set. |
 | `--strict` | Turn internal errors into failures instead of warn-and-exit-0. |
 | `-h`, `--help` | Usage for the CLI or the subcommand. |
+
+These four work before or after the subcommand, and mean the same in either
+position: `bin/gotdocs --repo X status` is `bin/gotdocs status --repo X`. Given
+twice, the later one wins.
 
 `--version` is top-level only: `bin/gotdocs --version`, not
 `bin/gotdocs check --version`. It prints `gotdocs 1`.
@@ -97,8 +101,8 @@ bin/gotdocs check [--staged | --base REF | --paths PATH...] [--json]
 | `--paths PATH...` | Change set is the literal list of paths. Needs no git history; useful for testing and for agents reasoning about files they are about to change. |
 | `--json` | Emit the JSON contract below instead of human text. |
 | `--mode MODE` | Override the configured mode for this run. `off` \| `warn` \| `error`. |
-| `--message TEXT` | Scan this string for the skip token instead of `.git/COMMIT_EDITMSG`. Pass `''` to disable the message check entirely. |
-| `--message-file PATH` | Read the commit message from this file instead of `.git/COMMIT_EDITMSG`. |
+| `--message TEXT` | Scan this string for the skip token. Without it (or `--message-file`) no message is scanned. |
+| `--message-file PATH` | Read the commit message to scan from this file. |
 
 Every path argument — `--paths` here, and the positional paths of `impacted` —
 is resolved against the current directory and re-expressed relative to the
@@ -143,12 +147,11 @@ Rule, in order:
 6. Doc-side findings are always reported: lint errors, edits to
    `status: deprecated` docs, duplicate ids, and a committed index that no longer
    matches the working tree.
-7. Everything is skipped when `GOTDOCS_SKIP=1` is set, or when the commit
-   message carries the skip token. With `--staged` and no `--message`, the
-   message is read from `.git/COMMIT_EDITMSG` **only when it differs from
-   HEAD's message** — git writes that file after the pre-commit stage, so a
-   leftover from the previous commit is ignored rather than treated as a skip
-   request.
+7. Everything is skipped when `GOTDOCS_SKIP=1` is set, or when a message given
+   with `--message` / `--message-file` carries the skip token.
+   `.git/COMMIT_EDITMSG` is **never read** — git writes that file after the
+   pre-commit stage, so it holds a leftover from an earlier commit, not a skip
+   request for this one.
 
 Human output is grouped by finding kind and every line carries a remediation:
 
@@ -422,10 +425,14 @@ it reports `already up to date` and does nothing.
 
 If a different hook is already there:
 
-- it contains `gotdocs` — treated as an older gotdocs hook, overwritten, previous
-  contents copied to `pre-commit.bak`
-- it does not — `install` refuses with exit 2 and tells you to chain it manually
-  or re-run with `--force`, which overwrites and leaves `pre-commit.bak`
+- it carries the `gotdocs-managed-hook` marker line — it is an older copy of the
+  gotdocs hook, and is overwritten in place. No backup: the source is in
+  `.gotdocs/hooks/`, under git.
+- it does not — it is somebody else's hook, even if it calls `bin/gotdocs`.
+  `install` refuses with exit 2 and tells you to chain it manually or re-run
+  with `--force`. `--force` copies it to `pre-commit.bak` first, then overwrites.
+  An existing backup is never overwritten: the next free name is used
+  (`pre-commit.bak.1`, `.bak.2`, …) and reported.
 
 **Use `scripts/install-gotdocs.sh` instead for normal setup.** It does more: it
 installs *both* the pre-commit and pre-push hooks, honors `core.hooksPath`,
@@ -586,7 +593,7 @@ are skipped. Output is byte-deterministic.
 | Flag | Effect |
 | --- | --- |
 | `--target NAME` | One of `docusaurus`, `mkdocs`, `starlight`, `jekyll`, `hugo`, `github`. Default `publish.target`. An unknown name is exit `2` and lists the valid ones. |
-| `--out DIR` | Output directory. Default `publish.out_dir`. Relative paths resolve against the repo root. Exit `2` if neither is set. |
+| `--out DIR` | Output directory. Default `publish.out_dir`. Relative paths resolve against the repo root. Exit `2` if neither is set, or if any output would land inside a documentation root (`--out .`, `--out docs/site`): the sources live there. |
 | `--url-prefix P` | Site path the export is served under. Default `publish.url_prefix`. |
 | `--source-url URL` | Base URL for links that point at code rather than another document. Default `publish.source_url`. |
 | `--layout NAME` | Jekyll `layout:` value. Default `publish.layout`, then `page`. |
@@ -688,7 +695,12 @@ bin/gotdocs debt <record | list | resolve | render | stats> [flags]
 ```
 
 The ledger of findings that were knowingly deferred. `bin/gotdocs debt` with no
-subcommand prints help and exits `0`. Concepts, file format and the CI wiring are
+subcommand prints help and exits `0`.
+
+`record`, `list`, `resolve` and `stats` take `--local`: operate on this clone's
+untracked ledger at `<git-dir>/gotdocs/debt.jsonl` instead of the tracked
+`.gotdocs/debt.jsonl`. The pre-commit hook records there. `render` always reads
+the tracked ledger. Concepts, file format and the CI wiring are
 in [doc-debt.md](doc-debt.md); this is the flag reference.
 
 ### `debt record`
@@ -697,7 +709,7 @@ in [doc-debt.md](doc-debt.md); this is the flag reference.
 bin/gotdocs debt record [--staged | --base REF | --paths PATH...]
                         [--source manual|hook|ci] [--note TEXT] [--kinds KIND[,KIND]]
                         [--resolve-absent] [--date YYYY-MM-DD] [--sha SHA]
-                        [--dry-run] [--json]
+                        [--dry-run] [--local] [--json]
 ```
 
 Runs a `check` purely to harvest findings (enforcement mode is irrelevant and is
@@ -726,7 +738,7 @@ When `debt.enabled` is `false` this exits `0` having done nothing, reporting
 
 ```text
 bin/gotdocs debt list [--status open|resolved] [--all] [--kind K] [--doc ID]
-                      [--path PATH] [--limit N] [--json]
+                      [--path PATH] [--limit N] [--local] [--json]
 ```
 
 Defaults to open entries. `--all` shows open and resolved. `--limit 0` (or
@@ -746,7 +758,7 @@ gotdocs: 3 of 8 entries  (8 open, 0 resolved, 8 occurrence(s) recorded)
 ### `debt resolve`
 
 ```text
-bin/gotdocs debt resolve <REF>... [--note TEXT] [--date YYYY-MM-DD] [--sha SHA]
+bin/gotdocs debt resolve <REF>... [--note TEXT] [--date YYYY-MM-DD] [--sha SHA] [--local]
 bin/gotdocs debt resolve --auto [--staged | --base REF | --paths PATH...]
 ```
 
@@ -810,7 +822,7 @@ caps lines per finding kind, defaulting to `debt.max_report_lines` (20).
 ### `debt stats`
 
 ```text
-bin/gotdocs debt stats [--json]
+bin/gotdocs debt stats [--local] [--json]
 ```
 
 ```text

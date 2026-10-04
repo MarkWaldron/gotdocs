@@ -187,3 +187,35 @@ class TempRepoTestCase(unittest.TestCase):
     def assertPathExists(self, rel_path):
         path = os.path.join(self.root, rel_path.replace("/", os.sep))
         self.assertTrue(os.path.exists(path), "expected %s to exist" % (rel_path,))
+
+
+class VendoredRepoTestCase(TempRepoTestCase):
+    """A repo with the gotdocs CLI copied in, the way gotdocs-install does it.
+
+    For tests that run the real shell around the CLI: the git hooks and the
+    CI workflow steps both call ``bin/gotdocs`` from the repository root.
+    """
+
+    def vendor(self):
+        """Copy bin/gotdocs and the package in. The tests are not needed."""
+        shutil.copytree(
+            os.path.join(_REPO_ROOT, "tools", "gotdocs"),
+            os.path.join(self.root, "tools", "gotdocs"),
+            ignore=shutil.ignore_patterns("tests", "__pycache__"),
+        )
+        os.makedirs(os.path.join(self.root, "bin"))
+        shutil.copy2(os.path.join(_REPO_ROOT, "bin", "gotdocs"), os.path.join(self.root, "bin", "gotdocs"))
+        self.write(".gitignore", "__pycache__/\n")
+
+    def source_path(self, rel_path):
+        """A file in the gotdocs checkout under test, e.g. a hook or the workflow."""
+        return os.path.join(_REPO_ROOT, rel_path.replace("/", os.sep))
+
+    def shell_env(self, **overrides):
+        """Environment for a script that calls ``bin/gotdocs``."""
+        environ = git_env()
+        environ.pop("GOTDOCS_SKIP", None)
+        # Same interpreter as the suite, so a 3.9 run tests the shell on 3.9.
+        environ["GOTDOCS_PYTHON"] = sys.executable
+        environ.update(overrides)
+        return environ

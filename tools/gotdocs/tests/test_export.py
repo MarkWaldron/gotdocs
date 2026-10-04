@@ -633,6 +633,66 @@ class WriteTests(ExportBase):
         self.assertEqual(summary["out_dir"], out)
 
 
+class OutputDirGuardTests(ExportBase):
+    """Regression: `export --out .` overwrote every source document.
+
+        repo/
+          docs/a.md        <- source
+          build/docs/a.md  <- export belongs here
+          docs/site/...    <- refused: it would be indexed as a document
+          ./docs/a.md      <- refused: it IS the source
+    """
+
+    SOURCES = ("docs/architecture.md", "docs/guide.md")
+
+    def source_bytes(self):
+        return [support.read_bytes(self.root, path) for path in self.SOURCES]
+
+    def assertRefused(self, out, **kwargs):
+        before = self.source_bytes()
+
+        for name in export.target_names():
+            with self.assertRaises(UsageError, msg=name) as caught:
+                export.write_export(self.root, self.config(), name, out, **kwargs)
+            self.assertIn("docs", str(caught.exception), name)
+
+        self.assertEqual(self.source_bytes(), before)
+
+    def test_repo_root_is_refused_and_the_sources_survive(self):
+        self.assertRefused(self.root)
+
+        self.assertFalse(os.path.exists(os.path.join(self.root, export.MANIFEST_NAME)))
+
+    def test_a_directory_inside_a_root_is_refused(self):
+        out = os.path.join(self.root, "docs", "site")
+
+        self.assertRefused(out)
+
+        self.assertFalse(os.path.exists(out))
+
+    def test_a_root_itself_is_refused(self):
+        self.assertRefused(os.path.join(self.root, "docs"))
+
+    def test_a_symlink_to_the_repo_root_is_refused(self):
+        link = os.path.join(self.root, "alias")
+        os.symlink(self.root, link)
+
+        self.assertRefused(link)
+
+    def test_clean_deletes_nothing_when_refused(self):
+        stale = {"docs": [{"output": "docs/guide.md"}], "assets": []}
+        support.write(self.root, export.MANIFEST_NAME, json.dumps(stale))
+
+        self.assertRefused(self.root, clean=True)
+
+    def test_a_directory_beside_the_roots_is_allowed(self):
+        out = os.path.join(self.root, "build")
+
+        result = export.write_export(self.root, self.config(), "hugo", out)
+
+        self.assertIn("docs/architecture.md", result.written)
+
+
 class CrlfTests(ExportBase):
     def test_windows_line_endings_are_normalized(self):
         self.write(

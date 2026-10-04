@@ -66,9 +66,6 @@ class EmptyRepositoryTests(support.TempRepoTestCase):
         with self.assertRaises(EmptyRepoError):
             self.repo.base_changes("main")
 
-    def test_last_commit_message_is_none(self):
-        self.assertIsNone(self.repo.last_commit_message())
-
 
 class ChangeSetTests(support.TempRepoTestCase):
     def setUp(self):
@@ -185,14 +182,6 @@ class RepoStateTests(support.TempRepoTestCase):
         with open(os.path.join(self.root, ".git", "MERGE_HEAD"), "w") as handle:
             handle.write(self.head(short=False) + "\n")
         self.assertTrue(self.repo.merge_in_progress())
-
-    def test_commit_message_reads_commit_editmsg(self):
-        with open(os.path.join(self.root, ".git", "COMMIT_EDITMSG"), "w") as handle:
-            handle.write("a pending message\n")
-        self.assertEqual(self.repo.commit_message(), "a pending message\n")
-
-    def test_last_commit_message(self):
-        self.assertIn("initial", self.repo.last_commit_message())
 
     def test_failed_command_raises_git_error_not_a_traceback(self):
         with self.assertRaises(GitError) as caught:

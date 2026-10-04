@@ -439,6 +439,81 @@ class InstallCommandTests(CliTestCase):
         self.assertIn(".bak", out)
         self.assertTrue(os.path.exists(self.hook_path() + ".bak"))
 
+    # -- regressions: `install` destroyed hooks it did not own ----------------
+
+    MANAGED_V1 = "#!/bin/sh\n# gotdocs-managed-hook v1\nexit 0\n"
+    MANAGED_V2 = "#!/bin/sh\n# gotdocs-managed-hook v1\n# newer\nexit 0\n"
+    TEAM_HOOK = "#!/bin/sh\necho the team hook\n"
+    # Mentions gotdocs, but is the user's own script, not a copy of ours.
+    USER_HOOK_CALLING_GOTDOCS = "#!/bin/sh\nnpm test || exit 1\nbin/gotdocs check --staged\n"
+
+    def write_hook(self, text, suffix=""):
+        os.makedirs(os.path.join(self.root, ".git", "hooks"), exist_ok=True)
+        with io.open(self.hook_path() + suffix, "w") as handle:
+            handle.write(text)
+
+    def read_hook(self, suffix=""):
+        with io.open(self.hook_path() + suffix) as handle:
+            return handle.read()
+
+    def test_a_user_hook_that_calls_gotdocs_is_not_overwritten(self):
+        self.write(".gotdocs/hooks/pre-commit", self.MANAGED_V1)
+        self.write_hook(self.USER_HOOK_CALLING_GOTDOCS)
+
+        code, _out, err = self.run_cli("install")
+
+        self.assertEqual(code, 2)
+        self.assertIn("--force", err)
+        self.assertEqual(self.read_hook(), self.USER_HOOK_CALLING_GOTDOCS)
+
+    def test_a_user_hook_that_calls_gotdocs_is_reported_as_foreign(self):
+        self.write(".gotdocs/hooks/pre-commit", self.MANAGED_V1)
+        self.write_hook(self.USER_HOOK_CALLING_GOTDOCS)
+
+        _code, out, _err = self.run_cli("status")
+
+        self.assertIn("foreign hook", out)
+
+    def test_forcing_twice_keeps_the_foreign_hook_backup(self):
+        """
+            install --force   team hook -> pre-commit.bak
+            install --force   pre-commit.bak must still be the team hook,
+                              not the gotdocs hook the first run installed
+        """
+        self.write(".gotdocs/hooks/pre-commit", self.MANAGED_V1)
+        self.write_hook(self.TEAM_HOOK)
+        self.run_cli("install", "--force")
+        self.write(".gotdocs/hooks/pre-commit", self.MANAGED_V2)
+
+        code, _out, _err = self.run_cli("install", "--force")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(self.read_hook(), self.MANAGED_V2)
+        self.assertEqual(self.read_hook(".bak"), self.TEAM_HOOK)
+
+    def test_force_never_overwrites_an_existing_backup(self):
+        self.write(".gotdocs/hooks/pre-commit", self.MANAGED_V1)
+        self.write_hook("#!/bin/sh\necho an older backup\n", suffix=".bak")
+        self.write_hook(self.TEAM_HOOK)
+
+        code, payload, _err = self.run_json("install", "--force")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(self.read_hook(".bak"), "#!/bin/sh\necho an older backup\n")
+        self.assertEqual(self.read_hook(".bak.1"), self.TEAM_HOOK)
+        self.assertEqual(payload["backup"], self.hook_path() + ".bak.1")
+
+    def test_a_managed_hook_is_upgraded_in_place(self):
+        self.write(".gotdocs/hooks/pre-commit", self.MANAGED_V2)
+        self.write_hook(self.MANAGED_V1)
+
+        code, payload, _err = self.run_json("install")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(self.read_hook(), self.MANAGED_V2)
+        self.assertIsNone(payload["backup"])
+        self.assertFalse(os.path.exists(self.hook_path() + ".bak"))
+
 
 class PathArgumentTests(CliTestCase):
     """Regression: absolute and ``../`` paths were silently mangled.
@@ -626,6 +701,110 @@ class GlobalBehaviourTests(CliTestCase):
         code = cli.main(["status", "--repo", outside], stdout=io.StringIO(), stderr=err)
         self.assertEqual(code, 3)
         self.assertIn("not a git repository", err.getvalue())
+
+
+class GlobalFlagPositionTests(CliTestCase):
+    """Regression: a global flag before the subcommand was parsed, then lost.
+
+        gotdocs --repo X status       X was dropped; the cwd repo was used
+        gotdocs status --repo X       worked
+
+    Each subparser re-applied its own defaults over the top-level values.
+    """
+
+    MISSING_REPO = "/nonexistent/dir"
+
+    # One minimal argv per parser that inherits the global flags.
+    COMMANDS = (
+        ["check"],
+        ["impacted", "src/app.py"],
+        ["verify", "component"],
+        ["index"],
+        ["lint"],
+        ["status"],
+        ["install"],
+        ["new", "doc", "thing"],
+        ["why", "a symptom"],
+        ["export"],
+        ["debt", "record"],
+        ["debt", "list"],
+        ["debt", "resolve", "component"],
+        ["debt", "render"],
+        ["debt", "stats"],
+        ["ci", "doctor"],
+        ["ci", "init"],
+    )
+
+    def parse(self, argv):
+        return cli.build_parser().parse_args(argv)
+
+    def test_flags_before_every_subcommand_survive(self):
+        flags = ["--repo", "elsewhere", "--quiet", "--no-color", "--strict"]
+
+        for command in self.COMMANDS:
+            args = self.parse(flags + command)
+
+            self.assertEqual(args.repo, "elsewhere", command)
+            self.assertTrue(args.quiet, command)
+            self.assertTrue(args.no_color, command)
+            self.assertTrue(args.strict, command)
+
+    def test_flags_after_every_subcommand_still_work(self):
+        flags = ["--repo", "elsewhere", "--quiet", "--no-color", "--strict"]
+
+        for command in self.COMMANDS:
+            args = self.parse(command + flags)
+
+            self.assertEqual(args.repo, "elsewhere", command)
+            self.assertTrue(args.quiet, command)
+
+    def test_flags_between_a_command_and_its_subcommand_survive(self):
+        args = self.parse(["debt", "--repo", "elsewhere", "--quiet", "list"])
+
+        self.assertEqual(args.repo, "elsewhere")
+        self.assertTrue(args.quiet)
+
+    def test_absent_flags_keep_their_defaults(self):
+        for command in self.COMMANDS:
+            args = self.parse(command)
+
+            self.assertIsNone(args.repo, command)
+            self.assertIs(args.quiet, False, command)
+            self.assertIs(args.no_color, False, command)
+            self.assertIs(args.strict, False, command)
+
+    def test_the_later_flag_wins(self):
+        args = self.parse(["--repo", "first", "status", "--repo", "second"])
+
+        self.assertEqual(args.repo, "second")
+
+    def test_repo_before_the_subcommand_is_validated(self):
+        err = io.StringIO()
+
+        code = cli.main(["--repo", self.MISSING_REPO, "status"], stdout=io.StringIO(), stderr=err)
+
+        self.assertEqual(code, 2)
+        self.assertIn("not a directory", err.getvalue())
+
+    def test_repo_before_the_subcommand_selects_that_repo(self):
+        out = io.StringIO()
+
+        code = cli.main(["--repo", self.root, "status", "--json"], stdout=out, stderr=io.StringIO())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue())["status"]["repo"], self.root)
+
+    def test_quiet_before_the_subcommand_silences_output(self):
+        out = io.StringIO()
+
+        code = cli.main(
+            ["--quiet", "--repo", self.root, "check", "--paths", "no/such/file"],
+            stdout=out,
+            stderr=io.StringIO(),
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(out.getvalue(), "")
 
 
 class GracefulDegradationTests(CliTestCase):

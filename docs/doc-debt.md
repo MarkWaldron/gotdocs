@@ -9,7 +9,7 @@ covers:
 owners: ["@mark"]
 tags: [debt, ledger, ci, jsonl, adoption]
 status: current
-updated: 2026-08-15
+updated: 2026-10-04
 verified_at: 3d8b6cd
 ---
 
@@ -72,6 +72,20 @@ pull request. The findings below are real; they will be recorded in
 
 `.gotdocs/debt.jsonl`. One JSON object per line, sorted, LF-terminated, written
 via a temp file and `os.replace`.
+
+There are two ledgers in the same format, with one writer each:
+
+```text
+.gotdocs/debt.jsonl            tracked     the CI record job, on the default branch
+<git-dir>/gotdocs/debt.jsonl   untracked   the pre-commit hook, in warn mode
+```
+
+The tracked one is the team's record. The local one is yours: what this clone
+let through, visible with `bin/gotdocs debt list --local` until the change
+lands and CI records it. They are kept apart because a hook that edits a
+tracked file leaves the tree modified after every warned commit, and git then
+refuses to rebase or pull. Inside the git dir the file is never tracked and
+needs no ignore rule. Every `debt` subcommand except `render` takes `--local`.
 
 ```text
 {"entry_id":"0161a4b49144","kind":"stale","doc_id":"cli-reference","path":"docs/cli-reference.md","message":"tools/gotdocs/check.py changed and is covered by tools/gotdocs/** (and 1 other file)","remediation":"update docs/cli-reference.md, or run: bin/gotdocs verify cli-reference","status":"open","occurrences":1,"first_seen_date":"2026-08-14","first_seen_sha":"3d8b6cd","last_seen_date":"2026-08-14","last_seen_sha":"3d8b6cd","resolved_date":null,"resolved_sha":null,"note":"manual"}
@@ -267,11 +281,29 @@ keeps the commit out of gotdocs' own enforcement *and* out of this job's own
 `if:` guard, so the job cannot trigger itself. `[skip ci]` keeps every other
 workflow in the repository from running on a bookkeeping commit.
 
-The push retries up to three times, rebasing the single ledger commit onto the
-new tip each time, because somebody else may have pushed while the job ran. If it
-still cannot push, it emits a `::warning::` and exits **0**. The ledger is
-regenerated from the tree on every run, so losing this race entirely is harmless;
-a ledger that could not be written is not a reason to mark a green push red.
+The push is tried up to three times, because somebody else may have pushed while
+the job ran — another push, or another run of this job landing its own ledger.
+On a rejection the job does **not** rebase its ledger commit. It drops the
+commit, resets to the new tip, and runs `debt record` and `debt render` again
+for the same push range on top of whatever ledger is there now:
+
+```text
+main   P---A---B---La      La = run A's ledger commit
+run B  B---Lb              Lb was built without La's entries
+```
+
+Rebasing `Lb` onto `La` conflicts — both rewrite the same two files — and the
+losing run's debt was then gone for good, because a later push records only its
+own range. Re-recording cannot conflict. Its one cost: a finding both runs saw
+has its `occurrences` bumped by each.
+
+If it still cannot push, it emits a `::warning::` and exits **0**: a ledger that
+could not be written is not a reason to mark a green push red. That push's
+findings are then **not** recorded until a later push touches the same paths.
+
+Each push run has a concurrency group of its own (keyed on the sha), so it is
+never cancelled and never queued. A shared per-branch group drops all but one
+pending run, and a run that does not happen is a range nobody records.
 
 This job is the only part of gotdocs that writes to a repository.
 

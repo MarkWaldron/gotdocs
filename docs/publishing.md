@@ -9,7 +9,7 @@ covers:
 owners: ["@mark"]
 tags: [publishing, ssg, export, portability, lint]
 status: current
-updated: 2026-08-15
+updated: 2026-10-04
 verified_at: 3d8b6cd
 ---
 
@@ -58,7 +58,11 @@ and plain GitHub.**
    bytes on every machine and every run, so an export can be committed or diffed
    in CI. Files whose bytes are unchanged are not rewritten.
 4. **The source stays canonical.** Export never edits the documents. Switching
-   generators means changing `--target`, not editing 40 files.
+   generators means changing `--target`, not editing 40 files. An output
+   directory that would put any file inside a documentation root (`--out .`,
+   `--out docs/site`) is refused with exit `2` before anything is written or
+   cleaned: there the export would overwrite the sources, or be indexed as new
+   documents on the next run.
 5. **False positives are treated as worse than missed issues.** Before any rule
    runs, the scanner masks fenced code blocks (``` and `~~~`, any info string,
    any fence length), indented code blocks, inline code spans including

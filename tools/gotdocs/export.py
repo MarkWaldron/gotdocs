@@ -364,6 +364,9 @@ def write_export(repo_root, config, target, out_dir, clean=False, **kwargs):
     result = export_docs(repo_root, config, target, **kwargs)
     result.out_dir = out_dir
 
+    # Before --clean too: it deletes by path, and must not run on the sources.
+    _refuse_output_in_roots(repo_root, config, out_dir, result)
+
     if clean and os.path.isdir(out_dir):
         _clean_dir(out_dir, result)
 
@@ -385,6 +388,69 @@ def write_export(repo_root, config, target, out_dir, clean=False, **kwargs):
 
     result.written = sorted(written)
     return result
+
+
+def _refuse_output_in_roots(repo_root, config, out_dir, result):
+    """Raise :class:`UsageError` if any output would land inside a root.
+
+    The roots hold the sources. An export written there either overwrites
+    them or is indexed as a new document on the next run::
+
+        --out .          docs/a.md -> ./docs/a.md        the source itself
+        --out docs/site  docs/a.md -> docs/site/docs/a.md  a "new" document
+    """
+    roots = _existing_roots(repo_root, config)
+
+    outputs = [exported.path for exported in result.files]
+    outputs.extend(asset["output"] for asset in result.assets)
+    outputs.append(MANIFEST_NAME)
+
+    # Many outputs share a directory; answer once per directory.
+    root_of = {}
+    for output in outputs:
+        path = os.path.join(out_dir, output.replace("/", os.sep))
+        directory = os.path.dirname(path)
+        if directory not in root_of:
+            root_of[directory] = _root_containing(directory, roots)
+
+        root = root_of[directory]
+        if root is None:
+            continue
+
+        raise UsageError(
+            "export would write %s inside the documentation root '%s', where the "
+            "sources live; choose an output directory outside the roots (%s)"
+            % (os.path.relpath(path, repo_root), root, ", ".join(config.roots))
+        )
+
+
+def _existing_roots(repo_root, config):
+    """``(name, absolute path)`` for each configured root present on disk."""
+    roots = []
+    for name in config.roots:
+        path = os.path.join(repo_root, name.replace("/", os.sep))
+        if os.path.isdir(path):
+            roots.append((name, path))
+    return roots
+
+
+def _root_containing(directory, roots):
+    """Name of the root that is *directory* or one of its ancestors, else None.
+
+    Compares with ``samefile`` rather than by string, so a symlink or a
+    differently-cased path on a case-insensitive filesystem cannot slip past.
+    """
+    current = directory
+    while True:
+        if os.path.exists(current):
+            for name, path in roots:
+                if os.path.samefile(current, path):
+                    return name
+
+        parent = os.path.dirname(current)
+        if parent == current:
+            return None
+        current = parent
 
 
 def render_manifest(manifest):

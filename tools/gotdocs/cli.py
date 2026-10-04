@@ -56,6 +56,10 @@ TYPE_TO_ROOT = {
 
 DEBT_SOURCES = ("manual", "hook", "ci")
 
+# Line 2 of every hook gotdocs ships; scripts/install-gotdocs.sh greps the same.
+_HOOK_MARKER = b"gotdocs-managed-hook"
+_HOOK_BACKUP_SUFFIX = ".bak"
+
 _SLUG_STRIP_RE = re.compile(r"[^a-z0-9]+")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -191,18 +195,36 @@ def _global_flags():
     return parent
 
 
+def _inherited_flags():
+    """The global flags again, for subparsers, with no defaults of their own.
+
+    Every parser accepts the global flags, so they work in any position. But a
+    subparser applies its defaults to the namespace the top-level parser has
+    already filled, which erased a flag given before the subcommand. With
+    ``SUPPRESS`` a subparser only writes a flag it was actually given::
+
+        gotdocs --repo X status            repo = X   set by the top level
+        gotdocs status --repo X            repo = X   set by the subparser
+        gotdocs --repo X status --repo Y   repo = Y   the later one wins
+    """
+    parent = _global_flags()
+    for action in parent._actions:
+        action.default = argparse.SUPPRESS
+    return parent
+
+
 def build_parser():
     """Build the full argument parser, including every subcommand."""
-    parent = _global_flags()
     parser = _Parser(
         prog=PROGRAM,
-        parents=[parent],
+        parents=[_global_flags()],
         description="Keep a repository's documentation honest about its code.",
     )
     parser.add_argument(
         "--version", action="version", version="%s %s" % (PROGRAM, VERSION)
     )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
+    parent = _inherited_flags()
 
     # check ----------------------------------------------------------------
     check_parser = subparsers.add_parser(
@@ -452,6 +474,7 @@ def build_parser():
     record_parser.add_argument("--sha", metavar="SHA", help="override the sha stamped on entries")
     record_parser.add_argument("--dry-run", action="store_true", help="report what would change, write nothing")
     record_parser.add_argument("--json", action="store_true")
+    _add_local_flag(record_parser)
     record_parser.set_defaults(handler=cmd_debt_record)
 
     list_parser = debt_sub.add_parser("list", parents=[parent], help="list ledger entries")
@@ -462,6 +485,7 @@ def build_parser():
     list_parser.add_argument("--path", metavar="PATH")
     list_parser.add_argument("--limit", type=int, metavar="N", help="0 for all")
     list_parser.add_argument("--json", action="store_true")
+    _add_local_flag(list_parser)
     list_parser.set_defaults(handler=cmd_debt_list)
 
     resolve_parser = debt_sub.add_parser(
@@ -487,6 +511,7 @@ def build_parser():
     resolve_parser.add_argument("--date", metavar="YYYY-MM-DD")
     resolve_parser.add_argument("--sha", metavar="SHA")
     resolve_parser.add_argument("--json", action="store_true")
+    _add_local_flag(resolve_parser)
     resolve_parser.set_defaults(handler=cmd_debt_resolve)
 
     render_parser = debt_sub.add_parser(
@@ -500,6 +525,7 @@ def build_parser():
 
     stats_parser = debt_sub.add_parser("stats", parents=[parent], help="ledger totals")
     stats_parser.add_argument("--json", action="store_true")
+    _add_local_flag(stats_parser)
     stats_parser.set_defaults(handler=cmd_debt_stats)
 
     ci_parser = subparsers.add_parser(
@@ -558,6 +584,15 @@ def _ci_help_handler(ci_parser):
         return EXIT_OK
 
     return handler
+
+
+def _add_local_flag(parser):
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="use this clone's untracked ledger in the git dir (what the "
+        "pre-commit hook writes) instead of the tracked one",
+    )
 
 
 def _debt_help_handler(debt_parser):
@@ -1149,12 +1184,12 @@ def _hook_state(root, repo):
         return ".git/hooks/pre-commit not installed — run: bin/gotdocs install"
     installed_bytes = _read_bytes(installed)
     if not os.path.exists(source):
-        if installed_bytes and b"gotdocs" in installed_bytes:
+        if _is_managed_hook(installed_bytes):
             return ".git/hooks/pre-commit installed (gotdocs)"
         return ".git/hooks/pre-commit installed (not gotdocs')"
     if installed_bytes == _read_bytes(source):
         return ".git/hooks/pre-commit installed (matches %s)" % (config_module.HOOK_SOURCE_PATH,)
-    if installed_bytes and b"gotdocs" in installed_bytes:
+    if _is_managed_hook(installed_bytes):
         return ".git/hooks/pre-commit installed but differs from %s — run: bin/gotdocs install --force" % (
             config_module.HOOK_SOURCE_PATH,
         )
@@ -1167,6 +1202,29 @@ def _read_bytes(path):
             return handle.read()
     except (IOError, OSError):
         return None
+
+
+def _is_managed_hook(hook_bytes):
+    """True when *hook_bytes* is a copy of a hook gotdocs ships.
+
+    Decided by the marker line, not by the word "gotdocs": a team's own hook
+    that calls ``bin/gotdocs check`` mentions gotdocs too, and is theirs.
+    """
+    return bool(hook_bytes) and _HOOK_MARKER in hook_bytes
+
+
+def _free_backup_path(target):
+    """First of ``<target>.bak``, ``.bak.1``, ``.bak.2`` ... that does not exist.
+
+    An existing backup is somebody's hook. Reusing its name is how a second
+    ``install --force`` replaced the saved team hook with an old gotdocs one.
+    """
+    backup = target + _HOOK_BACKUP_SUFFIX
+    attempt = 0
+    while os.path.lexists(backup):
+        attempt += 1
+        backup = "%s%s.%d" % (target, _HOOK_BACKUP_SUFFIX, attempt)
+    return backup
 
 
 def cmd_install(context):
@@ -1194,14 +1252,17 @@ def cmd_install(context):
             elif not context.quiet:
                 context.write("gotdocs: pre-commit hook already up to date\n")
             return EXIT_OK
-        is_gotdocs = bool(existing and b"gotdocs" in existing)
-        if not is_gotdocs and not context.args.force:
+        is_managed = _is_managed_hook(existing)
+        if not is_managed and not context.args.force:
             raise GotdocsError(
                 "a non-gotdocs pre-commit hook already exists at %s; chain it manually "
                 "or re-run with --force" % (target,)
             )
-        if context.args.force or not is_gotdocs:
-            backup = target + ".bak"
+
+        # Only a hook we do not own is worth keeping: a managed one is a copy
+        # of a file in .gotdocs/hooks/, recoverable from git.
+        if not is_managed:
+            backup = _free_backup_path(target)
             shutil.copyfile(target, backup)
 
     with io.open(target, "wb") as handle:
@@ -1693,12 +1754,23 @@ def cmd_export(context):
 # ---------------------------------------------------------------------------
 
 
+def _debt_ledger_path(context):
+    """The ledger this command reads and writes: tracked, or ``--local``.
+
+    The tracked path is repo-relative. The local one is absolute, because the
+    git dir is not always ``<root>/.git`` (worktrees, submodules).
+    """
+    if not getattr(context.args, "local", False):
+        return context.config.debt_ledger
+    return debt_module.local_ledger_path(context.repo.git_dir())
+
+
 def _debt_ledger(context):
     """Load the ledger, reporting (but never dying on) unusable lines."""
-    config = context.config
-    entries, errors = debt_module.load_ledger(context.root, config.debt_ledger)
+    ledger_path = _debt_ledger_path(context)
+    entries, errors = debt_module.load_ledger(context.root, ledger_path)
     for error in errors:
-        context.note(error.located(config.debt_ledger))
+        context.note(error.located(ledger_path))
     return entries, errors
 
 
@@ -1836,11 +1908,11 @@ def cmd_debt_record(context):
 
     changed = False
     if not args.dry_run:
-        changed = debt_module.write_ledger(context.root, entries, config.debt_ledger)
+        changed = debt_module.write_ledger(context.root, entries, _debt_ledger_path(context))
 
     payload = {
         "ok": True,
-        "ledger": config.debt_ledger,
+        "ledger": _debt_ledger_path(context),
         "dry_run": bool(args.dry_run),
         "written": changed,
         "date": date,
@@ -1903,7 +1975,6 @@ def cmd_debt_resolve(context):
     by hand and the rest by evidence.
     """
     args = context.args
-    config = context.config
     auto = getattr(args, "auto", False)
     refs = list(args.refs or [])
 
@@ -1935,11 +2006,11 @@ def cmd_debt_resolve(context):
             if entry_id not in resolved:
                 resolved.append(entry_id)
 
-    changed = debt_module.write_ledger(context.root, entries, config.debt_ledger)
+    changed = debt_module.write_ledger(context.root, entries, _debt_ledger_path(context))
 
     payload = {
         "ok": not unmatched,
-        "ledger": config.debt_ledger,
+        "ledger": _debt_ledger_path(context),
         "written": changed,
         "resolved": resolved,
         "unmatched": unmatched,
@@ -2087,7 +2158,7 @@ def cmd_debt_stats(context):
             report.dumps(
                 {
                     "ok": True,
-                    "ledger": context.config.debt_ledger,
+                    "ledger": _debt_ledger_path(context),
                     "summary": summary,
                     "ledger_errors": [error.as_dict() for error in errors],
                 }
@@ -2095,6 +2166,6 @@ def cmd_debt_stats(context):
         )
     else:
         context.write(
-            report.render_debt_stats_text(summary, context.config.debt_ledger, context.palette)
+            report.render_debt_stats_text(summary, _debt_ledger_path(context), context.palette)
         )
     return EXIT_OK

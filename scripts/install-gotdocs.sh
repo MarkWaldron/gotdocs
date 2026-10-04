@@ -406,6 +406,6 @@ if [ "$INDEX_OK" -eq 0 ]; then
 fi
 say '    - seed the docs: ask Claude to run /gotdocs-audit, or bin/gotdocs new doc <id>'
 say '    - record the first architecture decision: bin/gotdocs new decision "<title>"'
-say '  see what has been deferred with: bin/gotdocs debt list'
+say '  see what has been deferred with: bin/gotdocs debt list (yours, not yet in CI: --local)'
 say '  bypass a single commit with: GOTDOCS_SKIP=1 git commit ...'
 say '  uninstall with: scripts/uninstall-gotdocs.sh'

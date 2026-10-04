@@ -10,7 +10,7 @@ covers:
 owners: ["@mark"]
 tags: [enforcement, hooks, ci, rollout]
 status: current
-updated: 2026-08-15
+updated: 2026-10-04
 verified_at: 3d8b6cd
 ---
 
@@ -100,27 +100,28 @@ What the hook does, in order, before it does anything expensive:
    findings nobody can act on.
 5. Read `enforce.pre_commit` from `.gotdocs/config.json`. Exit 0 immediately if
    it is `off`, before paying for anything else.
-6. Exit 0 if the pending commit message (`.git/COMMIT_EDITMSG`, when readable)
-   contains the skip token **and** differs from `HEAD`'s message. This is
-   best-effort by construction: git writes the pending message to
-   `COMMIT_EDITMSG` after `pre-commit` runs, so the file usually still holds the
-   previous commit's message. The HEAD comparison is what stops yesterday's
-   skip from silently suppressing today's check. `GOTDOCS_SKIP=1` is the
-   deterministic bypass.
+6. Do **not** look for the skip token in a commit message. Git writes the
+   pending message to `.git/COMMIT_EDITMSG` after `pre-commit` runs, so the
+   file only ever holds a leftover: the previous commit's message, an aborted
+   commit's, or one made on another branch. Reading it let an old token skip
+   an unrelated commit. `GOTDOCS_SKIP=1` is the bypass at this stage; the
+   token is honored by pre-push.
 7. Exit 0 if nothing is staged.
 8. Exit 0 with a one-line warning if `python3` is not on `PATH`, or if
    `bin/gotdocs` is missing. See [dependencies/python3.md](../dependencies/python3.md).
 9. Otherwise run `bin/gotdocs check --staged --quiet --mode "$MODE" --message ''`
    and print the findings plus a remediation block on stderr. `--quiet` is what
-   makes "empty stdout" mean "nothing to report", and `--message ''` keeps the
-   skip-token decision in step 6 rather than re-deriving it inside the CLI.
+   makes "empty stdout" mean "nothing to report", and `--message ''` says there
+   is no commit message to scan, per step 6.
 10. **In `warn` mode only**, if there were findings, run
-    `bin/gotdocs debt record --staged --source hook --quiet` and print
-    `gotdocs: recorded in .gotdocs/debt.jsonl (see: bin/gotdocs debt list)`.
+    `bin/gotdocs debt record --staged --source hook --quiet --local` and print
+    `gotdocs: recorded locally (see: bin/gotdocs debt list --local)`.
     Not in `off` (nothing was checked) and not in `error` (the commit was either
-    clean or blocked, so nothing was accepted). The ledger is written but
-    deliberately **not staged**: silently adding a file to somebody's commit is
-    worse than a slightly stale ledger, and `debt record` is idempotent.
+    clean or blocked, so nothing was accepted). `--local` writes this clone's
+    own ledger at `<git-dir>/gotdocs/debt.jsonl`, never the tracked
+    `.gotdocs/debt.jsonl`: that file belongs to the CI `record` job. The hook
+    must not touch a tracked file — a modified one makes `git rebase` and
+    `git pull` refuse to run.
 
 The hook exits non-zero only when the mode is `error` and `check` returned 1 or 2.
 Any other exit status from the CLI is reported and then swallowed. An exit 1 with
@@ -183,6 +184,13 @@ deliberately excused at commit time, with no way to excuse it again short of
 `GOTDOCS_SKIP=1`. When the token is found it prints
 `gotdocs: skipped ([gotdocs skip] in a commit message being pushed)` and exits 0.
 
+Commits the remote's default branch already has are left out of that grep
+(`--not refs/remotes/<remote>/HEAD`, falling back to `<remote>/main`, then
+`<remote>/master`). They enter the range when you merge or rebase, and they
+excuse nothing in your push. This matters because the CI `record` job commits
+to the default branch with the token in its message: without the exclusion,
+every branch that merged `main` afterwards skipped its own check.
+
 Unlike pre-commit, pre-push does **not** record doc debt. The pre-commit hook has
 already recorded anything these commits are carrying.
 
@@ -197,6 +205,10 @@ when there is no upstream at all.
 
 `.github/workflows/gotdocs.yml` defines **two jobs**, answering two different
 questions.
+
+`.github/workflows/tests.yml` is separate and is not enforcement: it runs the
+CLI's own unit tests on Python 3.9 and the newest 3.x. It exists in the gotdocs
+repo only; adopters do not vendor it.
 
 ### Job `check` — "does this change leave the documentation wrong?"
 
@@ -262,6 +274,8 @@ contains `[gotdocs skip]`. `permissions: contents: write`. It runs
 `gotdocs debt record --base <push range> --source ci --resolve-absent`, then
 `gotdocs debt render`, and commits `.gotdocs/debt.jsonl` and `.gotdocs/DEBT.md`
 back to `main` as `chore(gotdocs): record doc debt [gotdocs skip] [skip ci]`.
+If the push is rejected because `main` moved, it re-records on the new tip
+rather than rebasing. Every push gets its own run; none is cancelled or queued.
 It never fails the build. Full treatment in [doc-debt.md](doc-debt.md#the-two-ci-jobs).
 
 This is the only part of gotdocs that writes to a repository.
@@ -342,14 +356,14 @@ the next incident. See [runbooks/stale-doc-triage.md](../runbooks/stale-doc-tria
 
 ```sh
 GOTDOCS_SKIP=1 git commit -m "wip: spike, throwing away"      # deterministic
-git commit -m "wip: spike, throwing away [gotdocs skip]"       # best effort
+git commit -m "wip: spike, throwing away [gotdocs skip]"       # pre-push only
 ```
 
 `GOTDOCS_SKIP=1` is checked before anything else and always works. The
-commit-message token is honored when `.git/COMMIT_EDITMSG` already holds the
-pending message at hook time, which git does not guarantee — see the ordering
-note above. Use the environment variable when it must work; use the token when
-you want the decision recorded in history.
+commit-message token does nothing at pre-commit: git has not written the
+message yet — see the ordering note above. It takes effect at pre-push. Use the
+environment variable to get a commit through; use the token when you want the
+decision recorded in history.
 
 **Cost:** the token stays in the commit message forever and is greppable:
 

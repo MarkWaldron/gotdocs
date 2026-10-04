@@ -13,10 +13,10 @@
 # Behaviour:
 #   * chains to <hook>.local first, if the installer preserved a pre-existing hook
 #   * skips during merge / rebase / cherry-pick
-#   * skips when GOTDOCS_SKIP=1 or the pending commit message carries the skip token
+#   * skips when GOTDOCS_SKIP=1 (the commit-message skip token is pre-push's job)
 #   * honours enforce.pre_commit in .gotdocs/config.json (off | warn | error)
 #   * in warn mode, records the findings the commit is being allowed to carry into
-#     the local doc-debt ledger (.gotdocs/debt.jsonl); never in off mode
+#     this clone's local doc-debt ledger, inside the git dir; never in off mode
 #   * never blocks the commit when python3 or the CLI is unavailable
 #   * exits non-zero ONLY when the configured mode is "error"
 
@@ -143,27 +143,16 @@ if [ "$MODE" = 'off' ]; then
     exit 0
 fi
 
-SKIP_TOKEN=$(config_string 'skip_token' "$DEFAULT_SKIP_TOKEN")
-
 # ---------------------------------------------------------------------------
-# Skip token in the commit message. Necessarily best effort: git writes the
-# pending message to COMMIT_EDITMSG only *after* pre-commit runs, so the file
-# normally still holds the previous commit's message. Honour the token only
-# when the file is not that leftover -- otherwise one commit carrying the token
-# would silently suppress the check on the following commit as well.
+# The skip token in a commit message is NOT honoured here, and cannot be: git
+# writes the pending message to COMMIT_EDITMSG only *after* pre-commit runs.
+# Whatever that file holds now is left over from an earlier commit, an aborted
+# one, or another branch -- reading it let an old token skip an unrelated
+# commit. SKIP_TOKEN is only named in the remediation text below.
 #
-# GOTDOCS_SKIP=1 is the reliable bypass and is what the remediation text leads
-# with; a message-based skip is fully enforced by the commit-msg stage instead.
+# GOTDOCS_SKIP=1 is the bypass at this stage; pre-push reads real messages.
 # ---------------------------------------------------------------------------
-if [ -n "$SKIP_TOKEN" ] && [ -r "$GIT_DIR_PATH/COMMIT_EDITMSG" ]; then
-    if grep -qF -- "$SKIP_TOKEN" "$GIT_DIR_PATH/COMMIT_EDITMSG" 2>/dev/null; then
-        PENDING_MSG=$(grep -v '^#' "$GIT_DIR_PATH/COMMIT_EDITMSG" 2>/dev/null || true)
-        HEAD_MSG=$(git log -1 --format=%B HEAD 2>/dev/null || true)
-        if [ "$PENDING_MSG" != "$HEAD_MSG" ]; then
-            exit 0
-        fi
-    fi
-fi
+SKIP_TOKEN=$(config_string 'skip_token' "$DEFAULT_SKIP_TOKEN")
 
 # Nothing staged: nothing for gotdocs to reason about.
 if git diff --cached --quiet -- 2>/dev/null; then
@@ -189,11 +178,8 @@ if [ ! -f 'bin/gotdocs' ]; then
     exit 0
 fi
 
-# `--message ''` stops the CLI from consulting COMMIT_EDITMSG itself. Reaching
-# this point means the skip-token decision above already came out as "do not
-# skip", so re-reading the same file could only produce a different answer.
-# (The CLI applies the identical "differs from HEAD's message" guard, so this is
-# belt and braces -- but the hook's decision is the one that must win.)
+# `--message ''` states that there is no commit message to scan for the skip
+# token at this stage; see the note above.
 #
 # Capture stdout only: that is where the findings report goes. Anything the CLI
 # writes to stderr (warnings, tracebacks) streams straight to the terminal and
@@ -215,24 +201,29 @@ set -e
 
 # ---------------------------------------------------------------------------
 # Doc debt. In warn mode the commit is allowed through *carrying* findings, so
-# those findings are recorded once, locally, in .gotdocs/debt.jsonl. Recording
-# them is what stops "mode: warn" from meaning "nobody will ever read this".
+# those findings are recorded once, locally. Recording them is what stops
+# "mode: warn" from meaning "nobody will ever read this".
 #
 # Deliberately not done in the other modes: in "off" nothing was checked, and in
 # "error" the commit is either clean or blocked, so nothing was accepted.
 #
-# The ledger is written but NOT staged: silently adding a file to somebody's
-# commit is worse than a stale ledger, and `gotdocs debt record` is idempotent,
-# so the next commit or the CI record job picks it up.
+# `--local` writes this clone's own ledger inside the git dir, never the
+# tracked .gotdocs/debt.jsonl. That file belongs to the CI record job:
+#
+#     .gotdocs/debt.jsonl      tracked    CI, on the default branch
+#     <git-dir>/gotdocs/...    untracked  this hook
+#
+# Writing the tracked file here left it modified after every warned commit,
+# and git refuses to rebase or pull over a modified tracked file.
 # ---------------------------------------------------------------------------
 record_debt() {
     [ "$MODE" = 'warn' ] || return 0
     if [ -x 'bin/gotdocs' ]; then
-        ./bin/gotdocs debt record --staged --source hook --quiet >/dev/null 2>&1 || return 0
+        ./bin/gotdocs debt record --staged --source hook --quiet --local >/dev/null 2>&1 || return 0
     else
-        sh bin/gotdocs debt record --staged --source hook --quiet >/dev/null 2>&1 || return 0
+        sh bin/gotdocs debt record --staged --source hook --quiet --local >/dev/null 2>&1 || return 0
     fi
-    printf 'gotdocs: recorded in .gotdocs/debt.jsonl (see: bin/gotdocs debt list)\n' >&2
+    printf 'gotdocs: recorded locally (see: bin/gotdocs debt list --local)\n' >&2
 }
 
 remediation_block() {
@@ -250,8 +241,8 @@ Bypass this commit only:
   GOTDOCS_SKIP=1 git commit ...
 
 ("$SKIP_TOKEN" in the message is honored by pre-push, which reads real
-commit messages. Not reliably here: git has not written the pending message
-yet when pre-commit runs. Not by CI either -- that uses a PR label.)
+commit messages. Not here: git has not written the pending message yet when
+pre-commit runs. Not by CI either -- that uses a PR label.)
 ------------------------------------------------------------------------
 REMEDIATION
 }

@@ -9,8 +9,8 @@ covers:
 owners: ["@mark"]
 tags: [onboarding, orientation]
 status: current
-updated: 2026-08-14
-verified_at: 3d8b6cd
+updated: 2026-10-04
+verified_at: f15341a
 ---
 
 # Start Here

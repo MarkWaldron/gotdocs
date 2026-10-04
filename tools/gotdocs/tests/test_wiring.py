@@ -584,6 +584,46 @@ class DebtCommandTests(WiringTestCase):
         self.assertEqual(entries[0].first_seen_date, "2026-01-01")
         self.assertEqual(entries[0].first_seen_sha, self.head())
 
+    def local_ledger(self):
+        git_dir = self.git("rev-parse", "--absolute-git-dir").strip()
+        entries, errors = debt_module.load_ledger(
+            self.root, debt_module.local_ledger_path(git_dir)
+        )
+        self.assertEqual([error.message for error in errors], [])
+        return entries
+
+    def test_local_record_writes_under_the_git_dir_not_the_tree(self):
+        self.make_stale()
+
+        code, payload, _err = self.run_json("debt", "record", "--staged", "--local")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.local_ledger()), 1)
+        self.assertEqual(self.ledger(), [])
+        self.assertFalse(os.path.exists(os.path.join(self.root, debt_module.LEDGER_PATH)))
+        self.assertTrue(payload["ledger"].endswith(debt_module.LOCAL_LEDGER_NAME))
+
+    def test_local_and_tracked_ledgers_are_separate(self):
+        self.make_stale()
+        self.run_cli("debt", "record", "--staged", "--local")
+
+        _code, tracked, _err = self.run_json("debt", "list")
+        _code, local, _err = self.run_json("debt", "list", "--local")
+        _code, stats, _err = self.run_json("debt", "stats", "--local")
+
+        self.assertEqual(tracked["filtered"], [])
+        self.assertEqual([entry["doc_id"] for entry in local["filtered"]], ["component"])
+        self.assertEqual(stats["summary"]["open"], 1)
+
+    def test_local_resolve_closes_the_local_entry(self):
+        self.make_stale()
+        self.run_cli("debt", "record", "--staged", "--local")
+
+        code, _out, _err = self.run_cli("debt", "resolve", "component", "--local")
+
+        self.assertEqual(code, 0)
+        self.assertEqual([entry.status for entry in self.local_ledger()], ["resolved"])
+
     def test_recording_twice_bumps_occurrences_instead_of_appending(self):
         self.make_stale()
         self.run_cli("debt", "record", "--staged")
@@ -809,6 +849,15 @@ class ExportCommandTests(WiringTestCase):
         self.assertTrue(payload["dry_run"])
         self.assertEqual(payload["documents"], 1)
         self.assertFalse(os.path.exists(os.path.join(self.root, "site-out")))
+
+    def test_out_dir_over_the_sources_is_a_usage_error(self):
+        before = self.read("docs/component.md")
+
+        code, _out, err = self.run_cli("export", "--target", "hugo", "--out", ".")
+
+        self.assertEqual(code, 2)
+        self.assertIn("docs", err)
+        self.assertEqual(self.read("docs/component.md"), before)
 
     def test_list_targets(self):
         code, payload, _err = self.run_json("export", "--list-targets")
