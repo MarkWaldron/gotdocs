@@ -79,9 +79,9 @@ non-zero exit ends in `exit 0` rather than a blocked commit.
 | `git diff --cached --quiet --` | pre-commit | Nothing staged means nothing to check; leave immediately. |
 | `git rev-parse HEAD` | pre-push | Identify which stdin line describes the ref actually being pushed. |
 | `git rev-parse --verify --quiet <sha>^{commit}` | pre-push | Is the remote sha git handed us present locally? |
-| `git symbolic-ref --quiet refs/remotes/origin/HEAD` | pre-push | Base fallback. |
+| `git symbolic-ref --quiet refs/remotes/origin/HEAD` | pre-push | Base fallback. Also, for the pushed remote, names the default branch whose commits the skip-token scan leaves out. |
 | `git rev-list --max-parents=0 HEAD` | pre-push | Last-resort base: the root commit. |
-| `git log --format=%B BASE..HEAD` | pre-push | Skip-token scan over **every** commit being pushed. |
+| `git log --format=%B BASE..HEAD --not <remote default branch>` | pre-push | Skip-token scan over **every** commit being pushed that the default branch does not already have. |
 | `git fetch --no-tags origin +refs/heads/$BASE:...` | CI `check` job | Guarantee the base ref exists before diffing. |
 | `git status --porcelain -- .gotdocs/index.json .gotdocs/INDEX.md` | CI `check` job | The always-blocking committed-index gate. |
 | `git add` / `git commit` / `git push` / `git rebase` | CI `record` job only | Commits the regenerated doc-debt ledger back to `main`. This is the one place in the whole system that writes to a repository, it runs only on `push` to the default branch of a non-fork, and its commit message carries `[gotdocs skip] [skip ci]` so it cannot trigger itself. See [docs/doc-debt.md](../docs/doc-debt.md#the-two-ci-jobs). |

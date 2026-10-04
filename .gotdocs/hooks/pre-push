@@ -236,15 +236,40 @@ if [ -z "$BASE" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# The remote's default branch, as a remote-tracking ref, or empty if unknown.
+# git passes the remote's name as $1.
+# ---------------------------------------------------------------------------
+REMOTE_NAME=${1:-origin}
+MAINLINE=$(git symbolic-ref --quiet "refs/remotes/$REMOTE_NAME/HEAD" 2>/dev/null || true)
+for _branch in main master; do
+    [ -z "$MAINLINE" ] || break
+    if git rev-parse --verify --quiet "refs/remotes/$REMOTE_NAME/$_branch" >/dev/null 2>&1; then
+        MAINLINE="refs/remotes/$REMOTE_NAME/$_branch"
+    fi
+done
+
+# ---------------------------------------------------------------------------
 # Skip token. pre-push reports on the *whole* range being published, so the
 # token is honoured when any commit in that range carries it -- checking only
 # HEAD would re-report a change that was already deliberately excused at commit
 # time, with no way to excuse it again short of GOTDOCS_SKIP=1.
+#
+# Except commits the default branch already has. They arrive in the range by
+# merging or rebasing, and they excuse nothing in this push:
+#
+#     main  A---B        B = the CI ledger commit, which carries the token
+#            \   \
+#     feat    S---M      pushing feat: B is in A..M, S is the change to check
+#
+# Without the exclusion, every branch that merged main after CI recorded debt
+# skipped its own check.
 # ---------------------------------------------------------------------------
 if [ -n "$SKIP_TOKEN" ]; then
     RANGE_MSGS=$(git log --format=%B "$BASE..HEAD" 2>/dev/null || true)
     if [ -z "$RANGE_MSGS" ]; then
         RANGE_MSGS=$(git log -1 --format=%B HEAD 2>/dev/null || true)
+    elif [ -n "$MAINLINE" ]; then
+        RANGE_MSGS=$(git log --format=%B "$BASE..HEAD" --not "$MAINLINE" 2>/dev/null || true)
     fi
     if [ -n "$RANGE_MSGS" ]; then
         if printf '%s\n' "$RANGE_MSGS" | grep -qF -- "$SKIP_TOKEN" 2>/dev/null; then

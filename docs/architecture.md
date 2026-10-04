@@ -10,7 +10,7 @@ owners: ["@mark"]
 tags: [architecture, cli, internals]
 status: current
 updated: 2026-10-04
-verified_at: 9d0d75c
+verified_at: f15341a
 ---
 
 # Gotdocs Architecture

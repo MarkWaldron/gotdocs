@@ -10,7 +10,7 @@ owners: ["@mark"]
 tags: [onboarding, orientation]
 status: current
 updated: 2026-10-04
-verified_at: 23cb64b
+verified_at: f15341a
 ---
 
 # Start Here

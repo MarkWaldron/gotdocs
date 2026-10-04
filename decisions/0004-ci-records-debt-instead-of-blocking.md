@@ -28,7 +28,7 @@ tags:
 status: accepted
 decided_on: 2026-08-14
 updated: 2026-10-04
-verified_at: 3d8b6cd
+verified_at: f15341a
 ---
 
 # Enforcement defaults to warn and CI records doc debt instead of failing the build

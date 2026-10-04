@@ -182,6 +182,13 @@ deliberately excused at commit time, with no way to excuse it again short of
 `GOTDOCS_SKIP=1`. When the token is found it prints
 `gotdocs: skipped ([gotdocs skip] in a commit message being pushed)` and exits 0.
 
+Commits the remote's default branch already has are left out of that grep
+(`--not refs/remotes/<remote>/HEAD`, falling back to `<remote>/main`, then
+`<remote>/master`). They enter the range when you merge or rebase, and they
+excuse nothing in your push. This matters because the CI `record` job commits
+to the default branch with the token in its message: without the exclusion,
+every branch that merged `main` afterwards skipped its own check.
+
 Unlike pre-commit, pre-push does **not** record doc debt. The pre-commit hook has
 already recorded anything these commits are carrying.
 

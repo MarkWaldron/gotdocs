@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at_sha": "9d0d75c",
+  "generated_at_sha": "f15341a",
   "roots": [
     "docs",
     "runbooks",
@@ -143,7 +143,7 @@
         "adoption"
       ],
       "updated": "2026-10-04",
-      "verified_at": "3d8b6cd",
+      "verified_at": "f15341a",
       "symptoms": [
         "gotdocs reported stale docs and the commit went through anyway",
         "the CI job printed findings but the pull request is still green",
@@ -347,7 +347,7 @@
         "agent-interface"
       ],
       "updated": "2026-10-04",
-      "verified_at": "3d8b6cd"
+      "verified_at": "f15341a"
     },
     {
       "id": "decisions",
@@ -512,7 +512,7 @@
         "internals"
       ],
       "updated": "2026-10-04",
-      "verified_at": "9d0d75c"
+      "verified_at": "f15341a"
     },
     {
       "id": "onboarding-local-setup",
@@ -558,7 +558,7 @@
         "orientation"
       ],
       "updated": "2026-10-04",
-      "verified_at": "23cb64b"
+      "verified_at": "f15341a"
     },
     {
       "id": "publishing",
@@ -674,7 +674,7 @@
         "unblock"
       ],
       "updated": "2026-10-04",
-      "verified_at": "24024f5"
+      "verified_at": "f15341a"
     },
     {
       "id": "runbook-stale-doc-triage",

@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 try:  # works both as a package (`-m unittest tools.gotdocs.tests...`)
@@ -23,25 +24,33 @@ SKIP_TOKEN = support.DEFAULT_CONFIG["skip_token"]
 MODE_WARN = "warn"
 MODE_ERROR = "error"
 
+HOOK_PRE_COMMIT = "pre-commit"
+HOOK_PRE_PUSH = "pre-push"
+
+REMOTE = "origin"
+# What the CI record job commits to the default branch; see gotdocs.yml.
+BOT_MESSAGE = "chore(gotdocs): record doc debt %s [skip ci]" % (SKIP_TOKEN,)
+
 EXIT_OK = 0
 EXIT_BLOCKED = 1
 
 
 class HookTestCase(support.TempRepoTestCase):
-    """A repo with gotdocs vendored, pre-commit installed, one doc on ``src/**``."""
+    """A repo with gotdocs vendored, one hook installed, one doc on ``src/**``."""
 
+    hook = HOOK_PRE_COMMIT
     mode = MODE_ERROR
 
     def setUp(self):
         super().setUp()
         self.vendor()
-        self.write_config(enforce={"pre_commit": self.mode, "ci": "error"})
+        self.write_config(enforce={self.hook.replace("-", "_"): self.mode, "ci": "error"})
         self.write(".gitignore", "__pycache__/\n")
         self.write("docs/component.md", support.doc_text(doc_id="component", covers=["src/**"]))
         self.write("src/app.py", "print('v1')\n")
         index_module.write_index(self.root, self.config())
         self.commit("initial")
-        self.install_hook("pre-commit")
+        self.install_hook(self.hook)
 
     def vendor(self):
         """Copy the CLI in, the way gotdocs-install does. Tests are not needed."""
@@ -59,8 +68,8 @@ class HookTestCase(support.TempRepoTestCase):
         shutil.copy2(os.path.join(SOURCE_ROOT, ".gotdocs", "hooks", name), target)
         os.chmod(target, 0o755)
 
-    def try_commit(self, message, env=None):
-        """Run ``git commit`` through the hook; return (exit code, stderr)."""
+    def try_git(self, args, env=None):
+        """Run a git command that fires a hook; return (exit code, stderr)."""
         environ = support.git_env()
         environ.pop("GOTDOCS_SKIP", None)
         # Same interpreter as the suite, so a 3.9 run tests the hook on 3.9.
@@ -68,13 +77,16 @@ class HookTestCase(support.TempRepoTestCase):
         environ.update(env or {})
 
         completed = subprocess.run(
-            ["git", "commit", "-q", "-m", message],
+            ["git"] + list(args),
             cwd=self.root,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=environ,
         )
         return completed.returncode, completed.stderr.decode("utf-8", "replace")
+
+    def try_commit(self, message, env=None):
+        return self.try_git(["commit", "-q", "-m", message], env=env)
 
     def stage_covered_change(self, text="print('v2')\n"):
         self.write("src/app.py", text)
@@ -158,6 +170,100 @@ class PreCommitWarnModeTests(HookTestCase):
 
         self.assertEqual(code, EXIT_OK, err)
         self.assertIn("docs/component.md", err)
+
+
+class PrePushTestCase(HookTestCase):
+    """Adds a bare remote that already has ``main`` and an empty ``feat``."""
+
+    hook = HOOK_PRE_PUSH
+
+    def setUp(self):
+        super().setUp()
+        remote = os.path.realpath(tempfile.mkdtemp(prefix="gotdocs-remote-"))
+        self.addCleanup(shutil.rmtree, remote, True)
+        support.git(remote, "init", "-q", "--bare")
+        self.git("remote", "add", REMOTE, remote)
+
+        self.git("branch", "feat")
+        self.publish("main")
+        self.publish("feat")
+        self.git("checkout", "-q", "feat")
+
+    def publish(self, branch):
+        """Push without the check: fixture setup, not the push under test."""
+        code, err = self.try_git(["push", "-q", REMOTE, branch], env={"GOTDOCS_SKIP": "1"})
+        self.assertEqual(code, EXIT_OK, err)
+
+    def try_push(self, refspec="feat"):
+        return self.try_git(["push", "-q", REMOTE, refspec])
+
+    def commit_stale_change(self, message="change the app"):
+        self.write("src/app.py", "print('v2')\n")
+        return self.commit(message)
+
+    def land_bot_commit_on_main(self):
+        self.git("checkout", "-q", "main")
+        self.write(".gotdocs/debt.jsonl", "{}\n")
+        self.commit(BOT_MESSAGE)
+        self.publish("main")
+        self.git("checkout", "-q", "feat")
+
+
+class PrePushErrorModeTests(PrePushTestCase):
+    mode = MODE_ERROR
+
+    def test_stale_commit_blocks_the_push(self):
+        self.commit_stale_change()
+
+        code, err = self.try_push()
+
+        self.assertEqual(code, EXIT_BLOCKED, err)
+        self.assertIn("docs/component.md", err)
+
+    def test_skip_token_in_a_pushed_commit_skips(self):
+        self.commit_stale_change("spike %s" % (SKIP_TOKEN,))
+
+        code, err = self.try_push()
+
+        self.assertEqual(code, EXIT_OK, err)
+        self.assertIn("skipped", err)
+
+    def test_skip_token_on_a_branch_pushed_to_main_still_skips(self):
+        self.commit_stale_change("spike %s" % (SKIP_TOKEN,))
+
+        code, err = self.try_push("feat:main")
+
+        self.assertEqual(code, EXIT_OK, err)
+        self.assertIn("skipped", err)
+
+    def test_bot_commit_merged_from_main_does_not_skip(self):
+        """Regression: the CI ledger commit carries the token, to stop CI loops.
+
+            main  A---B          B = "record doc debt [gotdocs skip] [skip ci]"
+                   \\   \\
+            feat    S---M        S is stale; M merges main
+
+        B is in the range being pushed, so its token used to skip the check
+        for S. A commit main already has cannot excuse this push.
+        """
+        self.commit_stale_change()
+        self.land_bot_commit_on_main()
+        self.git("merge", "-q", "--no-edit", "main")
+
+        code, err = self.try_push()
+
+        self.assertEqual(code, EXIT_BLOCKED, err)
+        self.assertIn("docs/component.md", err)
+
+    def test_bot_commit_rebased_under_the_branch_does_not_skip(self):
+        """Same bug without a merge commit: ``A---B---S'`` after a rebase."""
+        self.commit_stale_change()
+        self.land_bot_commit_on_main()
+        self.git("rebase", "-q", "main")
+
+        code, err = self.try_push()
+
+        self.assertEqual(code, EXIT_BLOCKED, err)
 
 
 if __name__ == "__main__":
