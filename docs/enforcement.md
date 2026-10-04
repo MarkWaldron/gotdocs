@@ -274,6 +274,8 @@ contains `[gotdocs skip]`. `permissions: contents: write`. It runs
 `gotdocs debt record --base <push range> --source ci --resolve-absent`, then
 `gotdocs debt render`, and commits `.gotdocs/debt.jsonl` and `.gotdocs/DEBT.md`
 back to `main` as `chore(gotdocs): record doc debt [gotdocs skip] [skip ci]`.
+If the push is rejected because `main` moved, it re-records on the new tip
+rather than rebasing. Every push gets its own run; none is cancelled or queued.
 It never fails the build. Full treatment in [doc-debt.md](doc-debt.md#the-two-ci-jobs).
 
 This is the only part of gotdocs that writes to a repository.

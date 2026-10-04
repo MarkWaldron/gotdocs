@@ -35,10 +35,14 @@ permissions:
   contents: read
 
 concurrency:
-  # One in-flight run per pull request, or per branch for a push. A superseded
-  # pull request run is cancelled; a push run is NOT, because cancelling it
-  # half-way through committing the ledger back is how you lose the ledger.
-  group: gotdocs-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # One in-flight run per pull request; a superseded pull request run is
+  # cancelled. A push run gets a group of its own (the sha), so it is never
+  # cancelled and never queued: each push records its own range, and a run
+  # that does not happen is a range nobody records. A shared group per branch
+  # looks safer and is not -- GitHub keeps one pending run per group and drops
+  # the rest, so three quick pushes lost the middle one. Runs that overlap are
+  # handled by the commit step, which re-records on the new tip.
+  group: gotdocs-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -533,6 +537,7 @@ jobs:
             exit 0
           fi
           echo "recording against ${base}"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
 
           # --resolve-absent closes entries this run no longer reports, scoped to
           # the paths it actually examined, so a narrow push cannot wipe the
@@ -551,34 +556,56 @@ jobs:
         if: steps.ledger.outputs.changed == '1'
         env:
           BRANCH: ${{ github.ref_name }}
+          BASE: ${{ steps.ledger.outputs.base }}
         run: |
           set -u
+          max_attempts=3
           git config user.name  'gotdocs[bot]'
           git config user.email 'gotdocs@users.noreply.github.com'
-          git add -- .gotdocs/debt.jsonl .gotdocs/DEBT.md
 
           # [gotdocs skip] keeps this commit out of gotdocs' own enforcement and
           # out of the `record` job's `if:` guard; [skip ci] keeps every other
           # workflow in the repository from running on a bookkeeping commit.
           # Both are needed: they are read by different systems.
-          git commit -m 'chore(gotdocs): record doc debt [gotdocs skip] [skip ci]' ||
-            { echo "nothing staged after all"; exit 0; }
+          #
+          # Only files that exist are staged: a repository with no debt yet has
+          # a report and no ledger, and `git add` on a missing path is fatal.
+          commit_ledger() {
+            for path in .gotdocs/debt.jsonl .gotdocs/DEBT.md; do
+              if [ -e "${path}" ]; then
+                git add -- "${path}"
+              fi
+            done
+            git commit -m 'chore(gotdocs): record doc debt [gotdocs skip] [skip ci]'
+          }
 
-          # Somebody else may have pushed while this job ran. Rebase the single
-          # ledger commit onto the new tip and retry. The ledger is regenerated
-          # from the tree on every run, so losing this race entirely is harmless
-          # -- which is why the loop gives up quietly instead of failing the job.
+          commit_ledger || { echo "nothing staged after all"; exit 0; }
+
+          # Somebody else may have pushed while this job ran -- another push, or
+          # another run of this job landing its own ledger. Do NOT rebase the
+          # ledger commit onto the new tip: this run's ledger was built without
+          # the other run's entries, so the two conflict, and the loser's debt
+          # is gone for good (a later push records only its own range).
+          #
+          #     main   P---A---B---La      La = run A's ledger commit
+          #     run B  B---Lb              Lb knows nothing of La: conflict
+          #
+          # Instead drop our commit, take the new tip, and record this push's
+          # range again on top of whatever ledger is there now.
           attempt=1
-          while [ "${attempt}" -le 3 ]; do
+          while [ "${attempt}" -le "${max_attempts}" ]; do
             if git push origin "HEAD:${BRANCH}"; then
               echo "gotdocs: ledger pushed on attempt ${attempt}"
               exit 0
             fi
-            echo "gotdocs: push rejected, rebasing (attempt ${attempt})"
+            echo "gotdocs: push rejected, re-recording on the new tip (attempt ${attempt})"
             git fetch --no-tags origin "${BRANCH}" || break
-            git rebase "origin/${BRANCH}" || { git rebase --abort || true; break; }
+            git reset --hard "origin/${BRANCH}" || break
+            ./bin/gotdocs debt record --base "${BASE}" --source ci --resolve-absent || break
+            ./bin/gotdocs debt render || break
+            commit_ledger || { echo "gotdocs: the new tip already carries this ledger"; exit 0; }
             attempt=$((attempt + 1))
           done
 
-          echo "::warning::could not push the doc-debt ledger after ${attempt} attempt(s); the next push to ${BRANCH} will regenerate it"
+          echo "::warning::could not push the doc-debt ledger after ${attempt} attempt(s); this push's findings are NOT recorded until a later push touches the same paths"
           exit 0

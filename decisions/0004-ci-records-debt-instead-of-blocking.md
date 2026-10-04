@@ -103,9 +103,12 @@ the change set that is wrong, which makes every later diff lie.
   `[gotdocs skip]` token in a commit message skips a pre-push run; it is not
   read at pre-commit, where the message does not exist yet. `GOTDOCS_SKIP=1` in
   the environment skips any local run.
-- The `record` job never fails the build. A ledger that cannot be pushed after
-  three rebase attempts emits `::warning::could not push the doc-debt ledger`
-  and exits 0, because the ledger is regenerated from the tree on the next push.
+- The `record` job never fails the build. A rejected push is retried by
+  re-recording the same range on the new tip, never by rebasing the ledger
+  commit. A ledger that still cannot be pushed after three attempts emits
+  `::warning::could not push the doc-debt ledger` and exits 0. That push's
+  findings then stay unrecorded until a later push touches the same paths: a
+  push records its own range, not the whole tree.
 - `.gotdocs/debt.jsonl` is one JSON object per line, keyed by a stable digest of
   `(kind, doc_id, path)`. Recording the same finding again bumps `occurrences`
   and `last_seen`; it never appends a second line. Every date comes from a git
@@ -157,7 +160,7 @@ somebody reads `.gotdocs/DEBT.md`.
 
 The `record` job needs `contents: write` and pushes bot commits to `main`,
 which some repositories will not accept and which adds noise to the history of
-`main`. The rebase-and-retry loop gives up after three attempts by design.
+`main`. The re-record-and-retry loop gives up after three attempts by design.
 
 The index gate being the one hard failure means the first gotdocs failure most
 contributors ever see is about a generated file rather than about documentation,

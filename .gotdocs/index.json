@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at_sha": "c173369",
+  "generated_at_sha": "2385222",
   "roots": [
     "docs",
     "runbooks",
@@ -347,7 +347,7 @@
         "agent-interface"
       ],
       "updated": "2026-10-04",
-      "verified_at": "f15341a"
+      "verified_at": "2385222"
     },
     {
       "id": "decisions",
@@ -629,7 +629,7 @@
         "pull-request"
       ],
       "updated": "2026-10-04",
-      "verified_at": "23cb64b"
+      "verified_at": "2385222"
     },
     {
       "id": "runbook-doc-debt-review",

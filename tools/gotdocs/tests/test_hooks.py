@@ -8,7 +8,6 @@ reaching the CLI is caught too.
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 
@@ -19,7 +18,6 @@ except ImportError:  # ...and as a top-level module (`discover -s tools/gotdocs/
 from tools.gotdocs import debt as debt_module
 from tools.gotdocs import index as index_module
 
-SOURCE_ROOT = support._REPO_ROOT
 SKIP_TOKEN = support.DEFAULT_CONFIG["skip_token"]
 
 MODE_WARN = "warn"
@@ -38,7 +36,7 @@ EXIT_OK = 0
 EXIT_BLOCKED = 1
 
 
-class HookTestCase(support.TempRepoTestCase):
+class HookTestCase(support.VendoredRepoTestCase):
     """A repo with gotdocs vendored, one hook installed, one doc on ``src/**``."""
 
     hook = HOOK_PRE_COMMIT
@@ -48,43 +46,26 @@ class HookTestCase(support.TempRepoTestCase):
         super().setUp()
         self.vendor()
         self.write_config(enforce={self.hook.replace("-", "_"): self.mode, "ci": "error"})
-        self.write(".gitignore", "__pycache__/\n")
         self.write("docs/component.md", support.doc_text(doc_id="component", covers=["src/**"]))
         self.write("src/app.py", "print('v1')\n")
         index_module.write_index(self.root, self.config())
         self.commit("initial")
         self.install_hook(self.hook)
 
-    def vendor(self):
-        """Copy the CLI in, the way gotdocs-install does. Tests are not needed."""
-        shutil.copytree(
-            os.path.join(SOURCE_ROOT, "tools", "gotdocs"),
-            os.path.join(self.root, "tools", "gotdocs"),
-            ignore=shutil.ignore_patterns("tests", "__pycache__"),
-        )
-        os.makedirs(os.path.join(self.root, "bin"))
-        shutil.copy2(os.path.join(SOURCE_ROOT, "bin", "gotdocs"), os.path.join(self.root, "bin", "gotdocs"))
-
     def install_hook(self, name):
         target = os.path.join(self.root, ".git", "hooks", name)
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        shutil.copy2(os.path.join(SOURCE_ROOT, ".gotdocs", "hooks", name), target)
+        shutil.copy2(self.source_path(".gotdocs/hooks/%s" % (name,)), target)
         os.chmod(target, 0o755)
 
     def try_git(self, args, env=None):
         """Run a git command that fires a hook; return (exit code, stderr)."""
-        environ = support.git_env()
-        environ.pop("GOTDOCS_SKIP", None)
-        # Same interpreter as the suite, so a 3.9 run tests the hook on 3.9.
-        environ["GOTDOCS_PYTHON"] = sys.executable
-        environ.update(env or {})
-
         completed = subprocess.run(
             ["git"] + list(args),
             cwd=self.root,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env=environ,
+            env=self.shell_env(**(env or {})),
         )
         return completed.returncode, completed.stderr.decode("utf-8", "replace")
 

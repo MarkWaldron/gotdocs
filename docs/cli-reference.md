@@ -10,7 +10,7 @@ owners: ["@mark"]
 tags: [cli, reference, json, agent-interface]
 status: current
 updated: 2026-10-04
-verified_at: f15341a
+verified_at: 2385222
 ---
 
 # Gotdocs CLI Reference
