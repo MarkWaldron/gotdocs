@@ -114,12 +114,14 @@ What the hook does, in order, before it does anything expensive:
    makes "empty stdout" mean "nothing to report", and `--message ''` says there
    is no commit message to scan, per step 6.
 10. **In `warn` mode only**, if there were findings, run
-    `bin/gotdocs debt record --staged --source hook --quiet` and print
-    `gotdocs: recorded in .gotdocs/debt.jsonl (see: bin/gotdocs debt list)`.
+    `bin/gotdocs debt record --staged --source hook --quiet --local` and print
+    `gotdocs: recorded locally (see: bin/gotdocs debt list --local)`.
     Not in `off` (nothing was checked) and not in `error` (the commit was either
-    clean or blocked, so nothing was accepted). The ledger is written but
-    deliberately **not staged**: silently adding a file to somebody's commit is
-    worse than a slightly stale ledger, and `debt record` is idempotent.
+    clean or blocked, so nothing was accepted). `--local` writes this clone's
+    own ledger at `<git-dir>/gotdocs/debt.jsonl`, never the tracked
+    `.gotdocs/debt.jsonl`: that file belongs to the CI `record` job. The hook
+    must not touch a tracked file — a modified one makes `git rebase` and
+    `git pull` refuse to run.
 
 The hook exits non-zero only when the mode is `error` and `check` returned 1 or 2.
 Any other exit status from the CLI is reported and then swallowed. An exit 1 with

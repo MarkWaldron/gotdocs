@@ -695,7 +695,12 @@ bin/gotdocs debt <record | list | resolve | render | stats> [flags]
 ```
 
 The ledger of findings that were knowingly deferred. `bin/gotdocs debt` with no
-subcommand prints help and exits `0`. Concepts, file format and the CI wiring are
+subcommand prints help and exits `0`.
+
+`record`, `list`, `resolve` and `stats` take `--local`: operate on this clone's
+untracked ledger at `<git-dir>/gotdocs/debt.jsonl` instead of the tracked
+`.gotdocs/debt.jsonl`. The pre-commit hook records there. `render` always reads
+the tracked ledger. Concepts, file format and the CI wiring are
 in [doc-debt.md](doc-debt.md); this is the flag reference.
 
 ### `debt record`
@@ -704,7 +709,7 @@ in [doc-debt.md](doc-debt.md); this is the flag reference.
 bin/gotdocs debt record [--staged | --base REF | --paths PATH...]
                         [--source manual|hook|ci] [--note TEXT] [--kinds KIND[,KIND]]
                         [--resolve-absent] [--date YYYY-MM-DD] [--sha SHA]
-                        [--dry-run] [--json]
+                        [--dry-run] [--local] [--json]
 ```
 
 Runs a `check` purely to harvest findings (enforcement mode is irrelevant and is
@@ -733,7 +738,7 @@ When `debt.enabled` is `false` this exits `0` having done nothing, reporting
 
 ```text
 bin/gotdocs debt list [--status open|resolved] [--all] [--kind K] [--doc ID]
-                      [--path PATH] [--limit N] [--json]
+                      [--path PATH] [--limit N] [--local] [--json]
 ```
 
 Defaults to open entries. `--all` shows open and resolved. `--limit 0` (or
@@ -753,7 +758,7 @@ gotdocs: 3 of 8 entries  (8 open, 0 resolved, 8 occurrence(s) recorded)
 ### `debt resolve`
 
 ```text
-bin/gotdocs debt resolve <REF>... [--note TEXT] [--date YYYY-MM-DD] [--sha SHA]
+bin/gotdocs debt resolve <REF>... [--note TEXT] [--date YYYY-MM-DD] [--sha SHA] [--local]
 bin/gotdocs debt resolve --auto [--staged | --base REF | --paths PATH...]
 ```
 
@@ -817,7 +822,7 @@ caps lines per finding kind, defaulting to `debt.max_report_lines` (20).
 ### `debt stats`
 
 ```text
-bin/gotdocs debt stats [--json]
+bin/gotdocs debt stats [--local] [--json]
 ```
 
 ```text

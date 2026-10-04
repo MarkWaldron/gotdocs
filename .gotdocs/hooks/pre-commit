@@ -16,7 +16,7 @@
 #   * skips when GOTDOCS_SKIP=1 (the commit-message skip token is pre-push's job)
 #   * honours enforce.pre_commit in .gotdocs/config.json (off | warn | error)
 #   * in warn mode, records the findings the commit is being allowed to carry into
-#     the local doc-debt ledger (.gotdocs/debt.jsonl); never in off mode
+#     this clone's local doc-debt ledger, inside the git dir; never in off mode
 #   * never blocks the commit when python3 or the CLI is unavailable
 #   * exits non-zero ONLY when the configured mode is "error"
 
@@ -201,24 +201,29 @@ set -e
 
 # ---------------------------------------------------------------------------
 # Doc debt. In warn mode the commit is allowed through *carrying* findings, so
-# those findings are recorded once, locally, in .gotdocs/debt.jsonl. Recording
-# them is what stops "mode: warn" from meaning "nobody will ever read this".
+# those findings are recorded once, locally. Recording them is what stops
+# "mode: warn" from meaning "nobody will ever read this".
 #
 # Deliberately not done in the other modes: in "off" nothing was checked, and in
 # "error" the commit is either clean or blocked, so nothing was accepted.
 #
-# The ledger is written but NOT staged: silently adding a file to somebody's
-# commit is worse than a stale ledger, and `gotdocs debt record` is idempotent,
-# so the next commit or the CI record job picks it up.
+# `--local` writes this clone's own ledger inside the git dir, never the
+# tracked .gotdocs/debt.jsonl. That file belongs to the CI record job:
+#
+#     .gotdocs/debt.jsonl      tracked    CI, on the default branch
+#     <git-dir>/gotdocs/...    untracked  this hook
+#
+# Writing the tracked file here left it modified after every warned commit,
+# and git refuses to rebase or pull over a modified tracked file.
 # ---------------------------------------------------------------------------
 record_debt() {
     [ "$MODE" = 'warn' ] || return 0
     if [ -x 'bin/gotdocs' ]; then
-        ./bin/gotdocs debt record --staged --source hook --quiet >/dev/null 2>&1 || return 0
+        ./bin/gotdocs debt record --staged --source hook --quiet --local >/dev/null 2>&1 || return 0
     else
-        sh bin/gotdocs debt record --staged --source hook --quiet >/dev/null 2>&1 || return 0
+        sh bin/gotdocs debt record --staged --source hook --quiet --local >/dev/null 2>&1 || return 0
     fi
-    printf 'gotdocs: recorded in .gotdocs/debt.jsonl (see: bin/gotdocs debt list)\n' >&2
+    printf 'gotdocs: recorded locally (see: bin/gotdocs debt list --local)\n' >&2
 }
 
 remediation_block() {

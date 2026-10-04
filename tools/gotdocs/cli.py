@@ -474,6 +474,7 @@ def build_parser():
     record_parser.add_argument("--sha", metavar="SHA", help="override the sha stamped on entries")
     record_parser.add_argument("--dry-run", action="store_true", help="report what would change, write nothing")
     record_parser.add_argument("--json", action="store_true")
+    _add_local_flag(record_parser)
     record_parser.set_defaults(handler=cmd_debt_record)
 
     list_parser = debt_sub.add_parser("list", parents=[parent], help="list ledger entries")
@@ -484,6 +485,7 @@ def build_parser():
     list_parser.add_argument("--path", metavar="PATH")
     list_parser.add_argument("--limit", type=int, metavar="N", help="0 for all")
     list_parser.add_argument("--json", action="store_true")
+    _add_local_flag(list_parser)
     list_parser.set_defaults(handler=cmd_debt_list)
 
     resolve_parser = debt_sub.add_parser(
@@ -509,6 +511,7 @@ def build_parser():
     resolve_parser.add_argument("--date", metavar="YYYY-MM-DD")
     resolve_parser.add_argument("--sha", metavar="SHA")
     resolve_parser.add_argument("--json", action="store_true")
+    _add_local_flag(resolve_parser)
     resolve_parser.set_defaults(handler=cmd_debt_resolve)
 
     render_parser = debt_sub.add_parser(
@@ -522,6 +525,7 @@ def build_parser():
 
     stats_parser = debt_sub.add_parser("stats", parents=[parent], help="ledger totals")
     stats_parser.add_argument("--json", action="store_true")
+    _add_local_flag(stats_parser)
     stats_parser.set_defaults(handler=cmd_debt_stats)
 
     ci_parser = subparsers.add_parser(
@@ -580,6 +584,15 @@ def _ci_help_handler(ci_parser):
         return EXIT_OK
 
     return handler
+
+
+def _add_local_flag(parser):
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="use this clone's untracked ledger in the git dir (what the "
+        "pre-commit hook writes) instead of the tracked one",
+    )
 
 
 def _debt_help_handler(debt_parser):
@@ -1741,12 +1754,23 @@ def cmd_export(context):
 # ---------------------------------------------------------------------------
 
 
+def _debt_ledger_path(context):
+    """The ledger this command reads and writes: tracked, or ``--local``.
+
+    The tracked path is repo-relative. The local one is absolute, because the
+    git dir is not always ``<root>/.git`` (worktrees, submodules).
+    """
+    if not getattr(context.args, "local", False):
+        return context.config.debt_ledger
+    return debt_module.local_ledger_path(context.repo.git_dir())
+
+
 def _debt_ledger(context):
     """Load the ledger, reporting (but never dying on) unusable lines."""
-    config = context.config
-    entries, errors = debt_module.load_ledger(context.root, config.debt_ledger)
+    ledger_path = _debt_ledger_path(context)
+    entries, errors = debt_module.load_ledger(context.root, ledger_path)
     for error in errors:
-        context.note(error.located(config.debt_ledger))
+        context.note(error.located(ledger_path))
     return entries, errors
 
 
@@ -1884,11 +1908,11 @@ def cmd_debt_record(context):
 
     changed = False
     if not args.dry_run:
-        changed = debt_module.write_ledger(context.root, entries, config.debt_ledger)
+        changed = debt_module.write_ledger(context.root, entries, _debt_ledger_path(context))
 
     payload = {
         "ok": True,
-        "ledger": config.debt_ledger,
+        "ledger": _debt_ledger_path(context),
         "dry_run": bool(args.dry_run),
         "written": changed,
         "date": date,
@@ -1951,7 +1975,6 @@ def cmd_debt_resolve(context):
     by hand and the rest by evidence.
     """
     args = context.args
-    config = context.config
     auto = getattr(args, "auto", False)
     refs = list(args.refs or [])
 
@@ -1983,11 +2006,11 @@ def cmd_debt_resolve(context):
             if entry_id not in resolved:
                 resolved.append(entry_id)
 
-    changed = debt_module.write_ledger(context.root, entries, config.debt_ledger)
+    changed = debt_module.write_ledger(context.root, entries, _debt_ledger_path(context))
 
     payload = {
         "ok": not unmatched,
-        "ledger": config.debt_ledger,
+        "ledger": _debt_ledger_path(context),
         "written": changed,
         "resolved": resolved,
         "unmatched": unmatched,
@@ -2135,7 +2158,7 @@ def cmd_debt_stats(context):
             report.dumps(
                 {
                     "ok": True,
-                    "ledger": context.config.debt_ledger,
+                    "ledger": _debt_ledger_path(context),
                     "summary": summary,
                     "ledger_errors": [error.as_dict() for error in errors],
                 }
@@ -2143,6 +2166,6 @@ def cmd_debt_stats(context):
         )
     else:
         context.write(
-            report.render_debt_stats_text(summary, context.config.debt_ledger, context.palette)
+            report.render_debt_stats_text(summary, _debt_ledger_path(context), context.palette)
         )
     return EXIT_OK

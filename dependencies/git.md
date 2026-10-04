@@ -40,7 +40,7 @@ shell in between (`subprocess.run(["git", ...])`).
 | Command | Used by | Purpose |
 | --- | --- | --- |
 | `git rev-parse --show-toplevel` | everything | Find the repo root. All paths are relative to it. |
-| `git rev-parse --absolute-git-dir` | `status`, `install` | Locate `MERGE_HEAD`, hooks dir. Not always `.git/` — worktrees and submodules use a file pointer. `--absolute-git-dir`, not `--git-dir`: the CLI does not `cd`, so a relative answer would be resolved against the wrong directory. |
+| `git rev-parse --absolute-git-dir` | `status`, `install`, `debt --local` | Locate `MERGE_HEAD`, hooks dir, the local ledger. Not always `.git/` — worktrees and submodules use a file pointer. `--absolute-git-dir`, not `--git-dir`: the CLI does not `cd`, so a relative answer would be resolved against the wrong directory. |
 | `git rev-parse --verify --quiet HEAD` | everything that needs a sha | Does this repository have any commits at all? Drives the empty-repo branches below. |
 | `git rev-parse --short HEAD` | `check`, `verify`, `index`, `debt` | The head sha a doc's `verified_at` is compared against and stamped with. |
 | `git rev-parse --verify --quiet REF^{commit}` | `check --base` | Does the base ref exist at all? |

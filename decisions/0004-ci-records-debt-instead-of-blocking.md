@@ -112,7 +112,9 @@ the change set that is wrong, which makes every later diff lie.
   commit date, never the wall clock, so re-running the job produces identical
   bytes.
 - The pre-commit hook in `warn` mode records what the commit is being allowed to
-  carry into the local ledger. In `off` mode it records nothing.
+  carry into the local ledger, `<git-dir>/gotdocs/debt.jsonl`. It never writes
+  the tracked `.gotdocs/debt.jsonl`; only the `record` job does. In `off` mode
+  it records nothing.
 
 ## This is a bug, not this decision, if...
 

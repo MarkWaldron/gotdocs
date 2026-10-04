@@ -16,6 +16,7 @@ try:  # works both as a package (`-m unittest tools.gotdocs.tests...`)
     from . import support
 except ImportError:  # ...and as a top-level module (`discover -s tools/gotdocs/tests`)
     import support
+from tools.gotdocs import debt as debt_module
 from tools.gotdocs import index as index_module
 
 SOURCE_ROOT = support._REPO_ROOT
@@ -26,6 +27,8 @@ MODE_ERROR = "error"
 
 HOOK_PRE_COMMIT = "pre-commit"
 HOOK_PRE_PUSH = "pre-push"
+
+TRACKED_LEDGER = debt_module.LEDGER_PATH
 
 REMOTE = "origin"
 # What the CI record job commits to the default branch; see gotdocs.yml.
@@ -170,6 +173,48 @@ class PreCommitWarnModeTests(HookTestCase):
 
         self.assertEqual(code, EXIT_OK, err)
         self.assertIn("docs/component.md", err)
+
+    def test_warned_commit_leaves_a_tracked_ledger_untouched(self):
+        """Regression: the hook rewrote the tracked ledger after every warning.
+
+            .gotdocs/debt.jsonl   tracked, written by CI on main
+            .git/gotdocs/...      untracked, written by this hook
+
+        A modified tracked file makes `git rebase` and `git pull` refuse to run,
+        so warn mode, the default, got in the way of git itself.
+        """
+        self.write(TRACKED_LEDGER, "")
+        self.commit("ci: start the ledger")
+        self.stage_covered_change()
+
+        code, err = self.try_commit("change the app")
+
+        self.assertEqual(code, EXIT_OK, err)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.git("rebase", "-q", "HEAD~1")
+
+    def test_warned_commit_does_not_create_a_ledger_in_the_tree(self):
+        self.stage_covered_change()
+
+        code, err = self.try_commit("change the app")
+
+        self.assertEqual(code, EXIT_OK, err)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_warned_commit_is_recorded_in_the_local_ledger(self):
+        self.stage_covered_change()
+
+        code, err = self.try_commit("change the app")
+
+        self.assertEqual(code, EXIT_OK, err)
+        self.assertIn("debt list --local", err)
+        entries, errors = debt_module.load_ledger(self.root, self.local_ledger())
+        self.assertEqual(errors, [])
+        self.assertEqual([entry.doc_id for entry in entries], ["component"])
+
+    def local_ledger(self):
+        git_dir = self.git("rev-parse", "--absolute-git-dir").strip()
+        return debt_module.local_ledger_path(git_dir)
 
 
 class PrePushTestCase(HookTestCase):

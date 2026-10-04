@@ -37,6 +37,7 @@ __all__ = [
     "LedgerError",
     "RecordResult",
     "LEDGER_PATH",
+    "LOCAL_LEDGER_NAME",
     "LEDGER_VERSION",
     "MARKDOWN_PATH",
     "STATUS_OPEN",
@@ -58,12 +59,15 @@ __all__ = [
     "render_json",
     "render_jsonl",
     "render_markdown",
+    "local_ledger_path",
     "load_ledger",
     "write_ledger",
     "write_markdown",
 ]
 
 LEDGER_PATH = ".gotdocs/debt.jsonl"
+# This clone's private ledger, relative to the git dir. See local_ledger_path.
+LOCAL_LEDGER_NAME = "gotdocs/debt.jsonl"
 MARKDOWN_PATH = ".gotdocs/DEBT.md"
 LEDGER_VERSION = 1
 
@@ -745,6 +749,21 @@ def _kind_sections(grouped):
 # ---------------------------------------------------------------------------
 # reading / writing
 # ---------------------------------------------------------------------------
+
+
+def local_ledger_path(git_dir):
+    """Absolute path of the local ledger: same format, kept inside the git dir.
+
+    Two writers must not share one tracked file::
+
+        .gotdocs/debt.jsonl       tracked    written by CI on the default branch
+        <git-dir>/gotdocs/...     untracked  written by the pre-commit hook
+
+    A hook that edits a tracked file leaves the tree dirty after every warned
+    commit, and git then refuses to rebase or pull. Inside the git dir the
+    file is never tracked, never needs an ignore rule, and never conflicts.
+    """
+    return os.path.join(git_dir, LOCAL_LEDGER_NAME.replace("/", os.sep))
 
 
 def load_ledger(repo_root, path=None):

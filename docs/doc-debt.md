@@ -9,7 +9,7 @@ covers:
 owners: ["@mark"]
 tags: [debt, ledger, ci, jsonl, adoption]
 status: current
-updated: 2026-08-15
+updated: 2026-10-04
 verified_at: 3d8b6cd
 ---
 
@@ -72,6 +72,20 @@ pull request. The findings below are real; they will be recorded in
 
 `.gotdocs/debt.jsonl`. One JSON object per line, sorted, LF-terminated, written
 via a temp file and `os.replace`.
+
+There are two ledgers in the same format, with one writer each:
+
+```text
+.gotdocs/debt.jsonl            tracked     the CI record job, on the default branch
+<git-dir>/gotdocs/debt.jsonl   untracked   the pre-commit hook, in warn mode
+```
+
+The tracked one is the team's record. The local one is yours: what this clone
+let through, visible with `bin/gotdocs debt list --local` until the change
+lands and CI records it. They are kept apart because a hook that edits a
+tracked file leaves the tree modified after every warned commit, and git then
+refuses to rebase or pull. Inside the git dir the file is never tracked and
+needs no ignore rule. Every `debt` subcommand except `render` takes `--local`.
 
 ```text
 {"entry_id":"0161a4b49144","kind":"stale","doc_id":"cli-reference","path":"docs/cli-reference.md","message":"tools/gotdocs/check.py changed and is covered by tools/gotdocs/** (and 1 other file)","remediation":"update docs/cli-reference.md, or run: bin/gotdocs verify cli-reference","status":"open","occurrences":1,"first_seen_date":"2026-08-14","first_seen_sha":"3d8b6cd","last_seen_date":"2026-08-14","last_seen_sha":"3d8b6cd","resolved_date":null,"resolved_sha":null,"note":"manual"}

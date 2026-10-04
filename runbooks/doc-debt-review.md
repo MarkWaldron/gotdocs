@@ -8,8 +8,8 @@ covers:
 owners: ["@mark"]
 tags: [runbook, debt, triage, maintenance]
 status: current
-updated: 2026-08-15
-verified_at: 3d8b6cd
+updated: 2026-10-04
+verified_at: c173369
 ---
 
 # Runbook: Working the Doc-Debt Ledger Down

@@ -10,7 +10,7 @@ owners: ["@mark"]
 tags: [runbook, hooks, pre-commit, unblock]
 status: current
 updated: 2026-10-04
-verified_at: f15341a
+verified_at: c173369
 ---
 
 # Runbook: Pre-Commit Hook Is Blocking a Commit

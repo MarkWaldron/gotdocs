@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at_sha": "f15341a",
+  "generated_at_sha": "c173369",
   "roots": [
     "docs",
     "runbooks",
@@ -439,7 +439,7 @@
         "jsonl",
         "adoption"
       ],
-      "updated": "2026-08-15",
+      "updated": "2026-10-04",
       "verified_at": "3d8b6cd"
     },
     {
@@ -512,7 +512,7 @@
         "internals"
       ],
       "updated": "2026-10-04",
-      "verified_at": "f15341a"
+      "verified_at": "c173369"
     },
     {
       "id": "onboarding-local-setup",
@@ -606,7 +606,7 @@
         "rollout"
       ],
       "updated": "2026-10-04",
-      "verified_at": "9d0d75c"
+      "verified_at": "c173369"
     },
     {
       "id": "runbook-ci-check-failing",
@@ -650,8 +650,8 @@
         "triage",
         "maintenance"
       ],
-      "updated": "2026-08-15",
-      "verified_at": "3d8b6cd"
+      "updated": "2026-10-04",
+      "verified_at": "c173369"
     },
     {
       "id": "runbook-pre-commit-hook-blocking",
@@ -674,7 +674,7 @@
         "unblock"
       ],
       "updated": "2026-10-04",
-      "verified_at": "f15341a"
+      "verified_at": "c173369"
     },
     {
       "id": "runbook-stale-doc-triage",
