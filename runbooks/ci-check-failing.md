@@ -20,6 +20,10 @@ Identify which from the job log, then jump to that section.
 
 ## Symptom
 
+A red `tests` workflow (`unit tests (python …)`) is not this runbook: that is
+the CLI's own unit tests failing. Reproduce with
+`python3 -m unittest discover -s tools/gotdocs/tests -t .`.
+
 The `check` job (display name `docs freshness`) in
 `.github/workflows/gotdocs.yml` fails. It runs three gates, each recording its
 exit status rather than failing immediately, so one run reports every problem:

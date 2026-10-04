@@ -197,6 +197,10 @@ when there is no upstream at all.
 `.github/workflows/gotdocs.yml` defines **two jobs**, answering two different
 questions.
 
+`.github/workflows/tests.yml` is separate and is not enforcement: it runs the
+CLI's own unit tests on Python 3.9 and the newest 3.x. It exists in the gotdocs
+repo only; adopters do not vendor it.
+
 ### Job `check` — "does this change leave the documentation wrong?"
 
 Display name `docs freshness`. Runs on `pull_request` (`opened`, `synchronize`,

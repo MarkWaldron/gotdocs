@@ -1,0 +1,42 @@
+name: tests
+
+# The gotdocs CLI's own unit tests. This repo only: adopters vendor
+# gotdocs.yml, not this file, so their CI never runs gotdocs' test suite.
+#
+# gotdocs.yml asks "are the docs still right?" and uses the CLI to answer.
+# Nothing there notices a broken CLI, so this job has to.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: unit tests (python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the documented floor (decision 0002); 3.x is whatever is newest.
+        python: ['3.9', '3.x']
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Run the unit tests
+        # -t . makes tools.gotdocs importable; without it unittest runs 0 tests.
+        run: python3 -m unittest discover -s tools/gotdocs/tests -t .
