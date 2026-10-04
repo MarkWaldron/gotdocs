@@ -191,18 +191,36 @@ def _global_flags():
     return parent
 
 
+def _inherited_flags():
+    """The global flags again, for subparsers, with no defaults of their own.
+
+    Every parser accepts the global flags, so they work in any position. But a
+    subparser applies its defaults to the namespace the top-level parser has
+    already filled, which erased a flag given before the subcommand. With
+    ``SUPPRESS`` a subparser only writes a flag it was actually given::
+
+        gotdocs --repo X status            repo = X   set by the top level
+        gotdocs status --repo X            repo = X   set by the subparser
+        gotdocs --repo X status --repo Y   repo = Y   the later one wins
+    """
+    parent = _global_flags()
+    for action in parent._actions:
+        action.default = argparse.SUPPRESS
+    return parent
+
+
 def build_parser():
     """Build the full argument parser, including every subcommand."""
-    parent = _global_flags()
     parser = _Parser(
         prog=PROGRAM,
-        parents=[parent],
+        parents=[_global_flags()],
         description="Keep a repository's documentation honest about its code.",
     )
     parser.add_argument(
         "--version", action="version", version="%s %s" % (PROGRAM, VERSION)
     )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
+    parent = _inherited_flags()
 
     # check ----------------------------------------------------------------
     check_parser = subparsers.add_parser(

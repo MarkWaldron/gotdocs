@@ -35,6 +35,10 @@ Accepted by every command.
 | `--strict` | Turn internal errors into failures instead of warn-and-exit-0. |
 | `-h`, `--help` | Usage for the CLI or the subcommand. |
 
+These four work before or after the subcommand, and mean the same in either
+position: `bin/gotdocs --repo X status` is `bin/gotdocs status --repo X`. Given
+twice, the later one wins.
+
 `--version` is top-level only: `bin/gotdocs --version`, not
 `bin/gotdocs check --version`. It prints `gotdocs 1`.
 
